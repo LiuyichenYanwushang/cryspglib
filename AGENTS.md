@@ -22,6 +22,43 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 总体完成计划与复核加固闭合（P0 / R51，2026-10-27；基线 4b9703a）
+
+用户已要求“给出详细的完成计划，然后按照计划一步一步来”，解除上一轮工作暂停。
+[总体完成计划](<docs/completion-plan.md>)按P0复核加固→P1完整域清点→P2磁Γ源→P3一般共表示→
+P4非Γ/full-star→P5spinor/双群→P6setting/normalizer与OP契约→P7公开交付排序，明确每阶段
+输入范围、证据、依赖与验收；这是后续执行计划，不是这些功能都已完成。原普通未冻结参数族的
+实际缺口也纳入清点；运行时不调用官方iso，不新增数值OP稳定子搜索。仍由本人实施，不擅自push/部署。
+
+P0已完成：共享存储行群律检查器原先将compose失败当作“0个乘积行”，
+[实际红灯](<target/logs/r51-exploration/stored-law-before.txt>)0/1证实合成平移溢出误分类。
+现在保留公开MatrixCertificationProblem::Arithmetic { left, right, reason }，源矩阵、
+实H目标与scalar/CIR H行复用同一修复，原SourceMatrixUncertified/TargetMatrixUncertified
+外层不变；下游穷尽match需新增分支。正数值、真实无乘积、等价重复行、冲突矩阵和群律违例
+控制均保留；不声称官方静态语料曾触发此极值溢出。扩展回归初稿把i32旋转写成i128极值的
+编译错误已改正，不算数学红灯。生产改动仅错误保留，没有新求解器、依赖或适用域扩大。
+
+新增纯幺正A双源packet负例：合法norm=2、单源norm=1、错误norm、缺字符/缺列、NaN/Inf；
+异常仍具名拒绝，不变成零重叠。公开配对回归从权威H行与原始M乘积独立逐项断言λχ(h)，
+明确区分错误λconj(χ(h))，不只依赖群律/重建最终结果。说明见[§12](<docs/magnetic-matrix-gamma-subduction.md>)。
+
+冻结256个输入后，[完整电池](<target/logs/r51-accepted/battery/summary.txt>) **1,004/0**（1,002+2），
+73壳、77/77池作业、16/16腿exit0；[独立审计](<target/logs/r51-accepted/battery-audit.json>)通过，
+普通三TSV旧行数/SHA/4==8不变。debug31模块+62公开=**93/0**，严格debug/release Clippy、
+doc、Python/oracle、fmt/diff通过。单斜官方13帧/262记录/105非零原点仍0差异。
+[矩阵审计](<target/logs/r51-accepted/matrix-audit.json>)完整43,492行/12字段TSV逐字等于R50，
+仍为旧入口与显式scalar/pair入口的联合覆盖，pair1,722磁C+248纯幺正不变；payload仍为64位
+Debug指纹，不冒称逐字保存完整矩阵负载。[Γ审计](<target/logs/r51-accepted/gamma-audit.json>)仍
+16,721 fixed/151,068成功，4/8线程逐字等于R45，错误/未决0。256输入在验收前后哈希相同，
+6driver及测量二进制不变；仅在全部验收后更新本账本与计划状态，其余254输入再核对。
+并发墙钟不作性能结论。没有删除其它项目，没有新增本轮独立agent审查（R50复核不能冒称R51复核）。
+
+**下一步P1/R52尚未实施**：清点69 compound/87三维及其它复源、目标家族、非Γ与spinor数据
+前提，为下一最小扩展固定真实见证。不能因为P0通过就宣称项目整体完成。
+运行时持久目标仍paused/disarmed：本次明确继续请求后，resume工具拒绝“the model cannot
+resume a paused goal; the user must resume it”。本回合按直接请求完成P0，但不另建目标、
+不改内部状态绕过；跨回合自动续行须用户在目标卡片恢复。这不是用户再次要求暂停。
+
 ### 复共轭 H 配对目标与独立复核暂停（R50，2026-10-26；基线 3420466）
 
 用户要求“干完这个暂停一下，用 deepseek-flash 的 subagent 进行复核”。本轮实现、冻结验收、

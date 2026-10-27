@@ -197,6 +197,7 @@ fn check(m: &MatrixGammaModel, p: &ConjugatePairPiece) {
             second.row
         });
     }
+    let mut h_values = vec![None; m.classes().len()];
     for col in gamma.operations.iter().filter(|c| !c.time_reversal) {
         let i = index(&raw.operations[col.magnetic_operation_index]);
         let mut values = Vec::new();
@@ -214,10 +215,42 @@ fn check(m: &MatrixGammaModel, p: &ConjugatePairPiece) {
                 .unwrap();
             values.push(row.values()[j]);
         }
+        h_values[i] = Some(values[0]);
         assert!((values[0].conj() - values[1]).norm() < 1e-8);
         let a = p.operators()[i].entries();
         assert!((C::new(a[0], a[2]) - values[0]).norm() < 1e-8);
         assert!((values[0] + values[1] - target.characters[col.column].unwrap()).norm() < 1e-8);
+    }
+    // Use the authoritative H row and original M products independently of
+    // the target matrices to test the canonical antiunitary coefficient.
+    if let Some(a) = m.classes().iter().find(|g| g.time_reversal) {
+        let square = index(&compose(a, a).unwrap());
+        let lambda = h_values[square].unwrap().sqrt();
+        let mut wrong_conjugation_differs = false;
+        for (h, operation) in m
+            .classes()
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| !g.time_reversal)
+        {
+            let chi = h_values[h].unwrap();
+            let g = index(&compose(a, operation).unwrap());
+            let want = lambda * chi;
+            let wrong = lambda * chi.conj();
+            let actual = p.operators()[g].entries();
+            for (x, y) in actual.iter().zip([want.re, -want.im, want.im, want.re]) {
+                assert!(
+                    (x - y).abs() < 1e-8,
+                    "UNI{}: T(a0 h) must use lambda*chi(h)",
+                    m.uni()
+                );
+            }
+            wrong_conjugation_differs |= (want - wrong).norm() > 1e-8;
+        }
+        assert!(
+            wrong_conjugation_differs,
+            "the witness must distinguish the wrong conjugated formula"
+        );
     }
 }
 #[test]

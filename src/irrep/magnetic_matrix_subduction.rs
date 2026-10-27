@@ -225,6 +225,12 @@ pub enum MatrixCertificationProblem {
         matrix_trace: f64,
         stored_trace: f64,
     },
+    /// Exact operation composition failed; this does not disprove the group law.
+    Arithmetic {
+        left: usize,
+        right: usize,
+        reason: String,
+    },
     /// The ordered product of two operation rows lands on no stored row
     /// (relative to the list's own translation lattice).
     LawProductNotUnique {
@@ -314,6 +320,14 @@ impl std::fmt::Display for MatrixCertificationProblem {
             } => write!(
                 f,
                 "operation {operation}: matrix trace {matrix_trace} != stored character {stored_trace}"
+            ),
+            Self::Arithmetic {
+                left,
+                right,
+                reason,
+            } => write!(
+                f,
+                "arithmetic failure composing operations {left} and {right}: {reason}"
             ),
             Self::LawProductNotUnique {
                 left,
@@ -1632,10 +1646,10 @@ fn check_stored_matrix_law(
                 &operation_of(&operations[left]),
                 &operation_of(&operations[right]),
             )
-            .map_err(|_| MatrixCertificationProblem::LawProductNotUnique {
+            .map_err(|error| MatrixCertificationProblem::Arithmetic {
                 left,
                 right,
-                products: 0,
+                reason: error.to_string(),
             })?;
             let matches: Vec<usize> = (0..operators)
                 .filter(|&index| {
@@ -4326,6 +4340,88 @@ mod tests {
             assert_eq!(certified.dimension(), 2);
             assert_eq!(certified.matrices.len(), irrep.characters().len());
         }
+    }
+
+    #[test]
+    fn stored_law_arithmetic_failure_is_not_a_missing_product() {
+        let id = identity_rotation();
+        let zero = [Rat::ZERO; 3];
+        let lattice = [
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ONE, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ];
+        let mut large_rotation = id;
+        large_rotation[0][0] = i32::MAX;
+        for operation in [
+            (id, [Rat::new(i128::MAX, 1).unwrap(), Rat::ZERO, Rat::ZERO]),
+            (large_rotation, zero),
+        ] {
+            let expected = compose(&operation_of(&operation), &operation_of(&operation))
+                .unwrap_err()
+                .to_string();
+            let problem =
+                check_stored_matrix_law(&[operation], &[vec![1.0]], 1, &lattice).unwrap_err();
+            assert!(
+                !matches!(
+                    problem,
+                    MatrixCertificationProblem::LawProductNotUnique { .. }
+                ),
+                "stored composition overflow is not evidence of a missing product: {problem}"
+            );
+            assert_eq!(
+                problem,
+                MatrixCertificationProblem::Arithmetic {
+                    left: 0,
+                    right: 0,
+                    reason: expected
+                }
+            );
+            assert!(
+                problem
+                    .to_string()
+                    .contains("arithmetic failure composing operations 0 and 0")
+            );
+        }
+        let large_translation = [Rat::new(i128::MAX / 4, 1).unwrap(), Rat::ZERO, Rat::ZERO];
+        assert!(
+            check_stored_matrix_law(&[(id, large_translation)], &[vec![1.0]], 1, &lattice).is_ok()
+        );
+        assert!(matches!(
+            check_stored_matrix_law(
+                &[(id, [Rat::new(1, 3).unwrap(), Rat::ZERO, Rat::ZERO])],
+                &[vec![1.0]],
+                1,
+                &lattice
+            ),
+            Err(MatrixCertificationProblem::LawProductNotUnique {
+                left: 0,
+                right: 0,
+                products: 0
+            })
+        ));
+        assert!(
+            check_stored_matrix_law(
+                &[(id, zero), (id, zero)],
+                &[vec![1.0], vec![1.0]],
+                1,
+                &lattice
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            check_stored_matrix_law(
+                &[(id, zero), (id, zero)],
+                &[vec![1.0], vec![-1.0]],
+                1,
+                &lattice
+            ),
+            Err(MatrixCertificationProblem::LawProductAmbiguous { .. })
+        ));
+        assert!(matches!(
+            check_stored_matrix_law(&[(id, zero)], &[vec![-1.0]], 1, &lattice),
+            Err(MatrixCertificationProblem::LawViolated { .. })
+        ));
     }
 
     /// The law is the discriminating check: a permutation of two operation rows

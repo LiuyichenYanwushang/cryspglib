@@ -361,3 +361,15 @@ ConjugatePairKind 严格分开两种情况：
 该入口不接纳两个不同的实 H 字符、复一维 A 目标或单个实二维 H 目标；它们仍由原入口处理。
 不扩大源域，也不宣称完成一般 B/C、高维/复合源、spinor、非Γ/full-star、一般 setting、
 normalizer 或 OP-stabilizer。完整固定语料覆盖与项目整体完成是不同的口径。
+
+## 12. 存储行认证的算术边界（R51）
+
+源矩阵、实 H 目标以及 scalar/CIR H 行共用的存储行群律 checker，现在将 exact compose
+失败保留为 MatrixCertificationProblem::Arithmetic { left, right, reason }。
+这是公开错误枚举的新增变体，下游穷尽 match 需要处理它；SourceMatrixUncertified /
+TargetMatrixUncertified 外层来源语义不变，内层保留原始算术原因，不能据此否证表示群律。
+真正无乘积行、等价重复行矩阵冲突和矩阵乘法违例仍分别报告原有的错误。
+合成极值回归不表示静态官方数据曾触发溢出；不扩大矩阵源/目标或数值可表示范围。
+纯幺正配对另有 norm=2 的合法控制和错误norm/缺列/非有限字符负例；单源 A 的 norm=1
+控制保留。公开配对测试从权威 H 行和原始 M 乘积独立核对反幺正系数 λχ(h)，并明确
+区分错误的 λconj(χ(h)) 公式，而不只依赖完整群律/重建最终断言。

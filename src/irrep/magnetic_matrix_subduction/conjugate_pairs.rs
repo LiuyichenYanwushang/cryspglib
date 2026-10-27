@@ -360,6 +360,65 @@ mod tests {
         (c, context, v)
     }
     #[test]
+    fn unitary_packet_overlap_rejects_invalid_norm_missing_and_nonfinite_summary() {
+        let m = model(true);
+        let (c, mut context, values) = data(&m);
+        assert!(matches!(c.corep_type, CorepType::A));
+        assert_eq!(c.source_irreps.len(), 2);
+        assert!(has_unitary_overlap(&m, &c, &context).unwrap());
+        let reject = |bad: &MagneticCorepSummary, context: &TargetContext, expected: &str| {
+            match has_unitary_overlap(&m, bad, context).unwrap_err() {
+                MatrixSubductionError::TargetCorepInconsistent { uni, label, reason } => {
+                    assert_eq!(uni, m.uni);
+                    assert_eq!(label, c.label);
+                    assert!(reason.contains(expected), "{reason}");
+                }
+                other => panic!("wrong error: {other:?}"),
+            }
+        };
+        let mut single = c.clone();
+        single.dim = 1;
+        single.source_irreps.truncate(1);
+        for (class, columns) in context.class_columns.iter().enumerate() {
+            for &column in columns {
+                single.characters[column] = Some(values[class]);
+            }
+        }
+        assert!(
+            has_unitary_overlap(&m, &single, &context).unwrap(),
+            "single-source A keeps norm one"
+        );
+        let mut bad = c.clone();
+        bad.characters.fill(Some(Complex64::new(2.0, 0.0)));
+        reject(&bad, &context, "invalid unitary character norm");
+        let identity = find_identity_class(&context.classes).unwrap();
+        let other = (0..context.classes.len()).find(|&i| i != identity).unwrap();
+        let column = context.class_columns[other][0];
+        for value in [
+            None,
+            Some(Complex64::new(f64::NAN, 0.0)),
+            Some(Complex64::new(0.0, f64::INFINITY)),
+        ] {
+            let mut bad = c.clone();
+            bad.characters[column] = value;
+            reject(
+                &bad,
+                &context,
+                if value.is_none() {
+                    "no summary character"
+                } else {
+                    "non-finite"
+                },
+            );
+        }
+        let mut bad = c.clone();
+        bad.characters.clear();
+        reject(&bad, &context, "no summary character");
+        context.class_columns[other].clear();
+        reject(&c, &context, "no columns");
+    }
+
+    #[test]
     fn every_anti_gauge_and_unitary_packet_reconstruct_without_counting_kernel_as_multiplicity() {
         let mut nonreal_squares = 0;
         let mut negative_squares = 0;
