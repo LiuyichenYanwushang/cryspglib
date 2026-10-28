@@ -19,8 +19,8 @@ fn row(ir: &IrrepRecord) -> CharacterRow {
     }
 }
 
-// Reuse the existing numeric checks without changing the production 1/2,
-// single-source, real-commutant-one certification fence.
+// Historical P1 audit of all stored shapes, including compound carriers.
+// Production verifiers separately enforce their explicit source admission gates.
 fn audit_table(ir: &IrrepRecord) -> (CertifiedTable, usize, [Rat; 3]) {
     assert!(!ir.spinor && gamma(ir));
     let row = row(ir);
@@ -165,7 +165,7 @@ fn all_nonspinor_gamma_sources_have_complete_stored_action_and_frame_evidence() 
 }
 
 #[test]
-fn three_dimensional_source_is_stored_but_not_admitted_and_trace_is_not_a_law_proof() {
+fn three_dimensional_source_stays_outside_old_input_and_trace_is_not_a_law_proof() {
     let ir = query::irreps_of(195)
         .iter()
         .find(|r| r.ml == "GM4")
@@ -180,10 +180,9 @@ fn three_dimensional_source_is_stored_but_not_admitted_and_trace_is_not_a_law_pr
         }),
         Err(MatrixSubductionError::SourceDimensionNotTwo { dimension: 3, .. })
     ));
-    assert!(matches!(
-        certify_irrep_matrices(ir, 3),
-        Err(MatrixCertificationProblem::DimensionOutOfScope { dimension: 3 })
-    ));
+    let admitted_table = certify_irrep_matrices(ir, 3).unwrap();
+    assert_eq!(admitted_table.operations, table.operations);
+    assert_eq!(admitted_table.matrices, table.matrices);
     let (a, b) = (0..table.matrices.len())
         .flat_map(|a| (a + 1..table.matrices.len()).map(move |b| (a, b)))
         .find(|&(a, b)| {

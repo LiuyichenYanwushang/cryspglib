@@ -22,6 +22,61 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 独立实三维 Γ 源认证（P2b / R55，2026-10-29；基线 f4ff526）
+
+本批由主agent亲自实现并完成冻结验收，范围明确收敛为**源认证，不是三维目标分导**。
+新增[独立入口与模型](<src/irrep/magnetic_matrix_subduction/three_dimensional_sources.rs>)
+verify_three_dimensional_gamma_input，只接实、非spinor、非compound、恰三维Γ源；
+复用未认证请求类型，但返回独立的三维模型、九系数算子及错误包装。旧二维类型、四系数算子、
+旧目标门槛与高层路由不变，没有自动fallback、新依赖或通用矩阵框架。
+
+[共享层](<src/irrep/magnetic_matrix_subduction.rs>)仅抽出原身份/记录几何准备，保留原顺序，
+将私有存储认证的上界从2增至3；DimensionOutOfScope说明文字相应改为1/2/3。
+全存储行的形状、有限性、正交、单位、raw/typed迹、全有序乘法及实commutant=1仍先证明，
+再复用完整data-Hall、双向心格、全旋转覆盖和整表共同原点见证；不按磁子群的部分操作放宽。
+每个原始M绑定均核对同类源行矩阵相同，η仅乘anti系数，最后验完整有色群律。
+源原点和嵌入shift分别保留；Γ矩阵不随坐标原点改写。旧验证/算术原因及Error::source保留，
+新源群律错误用独立三维载荷，不将算术未决伪装成缺少乘积类。范围见[§15](<docs/magnetic-matrix-gamma-subduction.md>)。
+
+新增2项模块、[4项公开回归](<tests/magnetic_three_dimensional_sources.rs>)；原P1同迹换行负例
+继续拒绝，内部三维认证转正但旧公开二维拒绝仍在。逐个核验全部87源及20个非零原点/BC对照；
+SG220 GM4/GM5→N1记录17/UNI701有双η/双标签8次A₁+B₂手工Gram/投影/复重建，
+另六个母群48次覆盖非零源原点、anti及非平凡嵌入。手工oracle不是生产目标求解器或额外H身份认证。
+维数、spinor、compound、非Γ、身份、缺η、错误平方、群律成立但错误存储帧、溢出与不闭合
+各有控制。数据表示证明不外推原始档案basis/gauge、所有raw-LaTeX别名或一般setting。
+
+[完整源认证审计](<target/logs/r55-accepted/source-audit.json>)沿固定R47几何覆盖**87源、6,378记录、
+19,190对×两η=38,380次**，输入错误0；逐原始M核对真实PIR行及复作用/全部有序乘积。
+4/8线程整表及探索结果逐字相同，SHA
+c1dd86681a649548fe99f7bc7dd65f7230f1ff1c6982ce3f2752d5be4ea3ff2e；九种审计破坏控制均拒绝。
+64位Debug指纹不冒充完整矩阵字节或加密等同性证明。上述38,380是**源认证**，不计目标分导成功。
+前置[字符清点](<target/r55-three-dimensional-predictions.tsv>)得到八种组合，含10对A₁+B₂、
+1,103对A₁+C₂、133对A₁+纯幺正pair；这是预测，不是完整R27目标来源/Hom或重数证明。
+
+[旧矩阵审计](<target/logs/r55-accepted/matrix-audit.json>)：43,492普通二维与7,556 compound调用，
+所有**14字段**在4/8线程下逐字等于R54，40个B及其它家族计数均不变；七种旧审计破坏控制通过。
+[实一维Γ](<target/logs/r55-accepted/gamma-audit.json>)仍16,721记录/151,068成功，错误/未决0，
+4/8逐字等于R45，SHA655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd。
+冻结**269输入、2父workspace清单、8driver、4测量产物及11参考文件**；[完整电池](<target/logs/r55-accepted/battery-audit.json>)
+**1,028/0**（1,022+6），78测试壳、82/82池作业、16/16腿exit0；普通三TSV行数/SHA/4==8不变。
+冻结debug模块43/0、公开4/0，严格debug/release Clippy、doc/Python、四项exact-rank控制、fmt/diff通过；
+单斜仍13帧/262记录/105非零原点/0差异。全部冻结输入及产物在验收前后逐项不变；仅随后
+更新本账本与计划，其余267输入另核对。并发墙钟不作性能结论。
+
+[独立实现复核](<target/r55-source-review.md>)在四文件及直接证明链内未发现已确认正确性缺陷；
+另以独立1/48-cell整数法实跑8模型、576原始行绑定、7,616有序复向量乘积、旧拒绝与算术原因。
+复核链接的a2dad3ea探索发布库[单独保留](<target/r55-reviewed-libcryspglib.rlib>)；不冒称重跑全电池。
+复核重读确认chunks_exact→as_chunks仅是等价lint拼写；随后只完善源/请求/审计说明，再冻结构建。
+前置数学探针由主agent恢复、重新编译实跑；不称作一个已完成的独立数学复核。
+父→子消息路由不可用、初次严格lint两项及多任务等待外层超时均如实保留，不算数学反例；
+没有降低任何门槛，后台任务均最终收齐exit0。
+
+**下一步P3b尚未实施**：收集适用A₁/A₂/A₃、B₂、C₂/纯幺正pair，统一证明三维全源Hom、
+Gram/投影和复重建；不能拼接旧完整二维报告。重复scalar copy须处理非正交核基，B实核维4
+不当重数4，unitary pair不假设复不可约。其它复源、连续参数、非Γ/full-star、spinor、setting/OP
+及交付仍按[计划](<docs/completion-plan.md>)推进。项目整体未完成；目标active/armed、revision11/round22。
+历史R50暂停已被后续明确继续请求解除；未删除其它项目、push或部署。
+
 ### 实标量 H 的显式二维 Type-B（P3a / R54，2026-10-28；基线 0419b7b）
 
 P3a已完成冻结验收，由主agent亲自实现。[低层窄B入口](<src/irrep/magnetic_matrix_subduction/type_b_targets.rs>)

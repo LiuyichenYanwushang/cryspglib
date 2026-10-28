@@ -7,6 +7,10 @@
 //! the magnetic group's Γ corepresentations, and exhibits matrix intertwiners
 //! with a full-space reconstruction.
 //!
+//! The separate [`verify_three_dimensional_gamma_input`] entry point certifies
+//! real three-dimensional sources only; it does not extend these two-dimensional
+//! target solvers or return a three-dimensional target decomposition.
+//!
 //! # Why the raw matrix storage needs its own certification
 //!
 //! [`crate::irrep::types::IrrepRecord::matrices`] is the legacy raw/source
@@ -157,6 +161,12 @@ use crate::irrep::wigner;
 #[cfg(test)]
 mod source_inventory;
 
+mod three_dimensional_sources;
+pub use three_dimensional_sources::{
+    THREE_DIMENSIONAL_SOURCE_SCOPE, ThreeDimensionalGammaError, ThreeDimensionalGammaModel,
+    ThreeDimensionalSourceOperator, verify_three_dimensional_gamma_input,
+};
+
 mod compound_sources;
 pub use compound_sources::{
     COMPOUND_CONJUGATE_PAIR_SCOPE, COMPOUND_SCALAR_TARGET_SCOPE, COMPOUND_SCOPE,
@@ -297,7 +307,10 @@ impl std::fmt::Display for MatrixCertificationProblem {
                 "declared dimension {declared} is not the requested {expected}"
             ),
             Self::DimensionOutOfScope { dimension } => {
-                write!(f, "dimension {dimension} is outside the 1/2 matrix family")
+                write!(
+                    f,
+                    "dimension {dimension} is outside the 1/2/3 stored-matrix family"
+                )
             }
             Self::ShapeMismatch {
                 operators,
@@ -757,8 +770,8 @@ impl From<GeometryError> for MatrixSubductionError {
 // Request
 // ---------------------------------------------------------------------------
 
-/// Everything a caller must state to obtain a verified two-dimensional real Γ
-/// matrix model.
+/// Unverified identities and evidence for the explicit real Γ matrix verifiers.
+/// The chosen two- or three-dimensional verifier enforces its own source scope.
 ///
 /// The identities, the embedding evidence and `η` are the *same* public types
 /// the R25 scalar contract uses, so a caller's provenance vocabulary does not
@@ -1495,7 +1508,7 @@ fn certify_stored_matrices(
             expected: expected_dimension,
         });
     }
-    if expected_dimension == 0 || expected_dimension > 2 {
+    if expected_dimension == 0 || expected_dimension > 3 {
         return Err(MatrixCertificationProblem::DimensionOutOfScope {
             dimension: expected_dimension,
         });
@@ -1787,17 +1800,7 @@ fn verify_matrix_gamma_input_for(
 ) -> Result<MatrixGammaModel, MatrixSubductionError> {
     let source_identity = request.source;
     let record_identity = request.record;
-    if source_identity.parent_sg == 0 || source_identity.parent_sg > 230 {
-        return Err(MatrixSubductionError::UnknownParentSpaceGroup {
-            sg: source_identity.parent_sg,
-        });
-    }
-    if source_identity.parent_sg != record_identity.parent_sg {
-        return Err(MatrixSubductionError::ParentMismatch {
-            source_sg: source_identity.parent_sg,
-            record_sg: record_identity.parent_sg,
-        });
-    }
+    check_matrix_parent(source_identity, record_identity)?;
     let parent_sg = source_identity.parent_sg;
     let source_irrep = if compound {
         resolve_matrix_source_for(source_identity, true)?
@@ -1805,74 +1808,14 @@ fn verify_matrix_gamma_input_for(
         resolve_matrix_source(source_identity)?
     };
 
-    let condensing = resolve_convention_irrep(
-        record_identity.parent_sg,
-        record_identity.condensing_label,
-        record_identity.convention,
-    )?;
-    let rows = crate::irrep::isotropy::magnetic_isotropy_subgroups(
-        parent_sg,
-        condensing.ml,
-        LabelConvention::Cdml,
-    )
-    .map_err(|error| MatrixSubductionError::DatabaseMismatch {
-        reason: error.to_string(),
-    })?;
-    let Some(subgroup) = rows.get(record_identity.direction_index).copied() else {
-        return Err(MatrixSubductionError::DirectionOutOfRange {
-            sg: parent_sg,
-            label: condensing.ml.to_string(),
-            index: record_identity.direction_index,
-            len: rows.len(),
-        });
-    };
-    let subgroup_record = subgroup.record;
-    let geometry = magnetic_embedding::geometry_of(parent_sg, &subgroup_record)?;
-
-    let set = magnetic_operations(subgroup_record.mag_sg).map_err(|error| {
-        MatrixSubductionError::DatabaseMismatch {
-            reason: error.to_string(),
-        }
-    })?;
-    magnetic_embedding::verify_group(&set).map_err(|error| MatrixSubductionError::GroupProof {
-        reason: error.to_string(),
-    })?;
-    magnetic_embedding::verify_against_database(&set).map_err(|error| {
-        MatrixSubductionError::DatabaseMismatch {
-            reason: error.to_string(),
-        }
-    })?;
-    if set.class_count() != set.classes.len() {
-        return Err(MatrixSubductionError::ClassListInconsistent {
-            classes: set.classes.len(),
-            recorded: set.class_count(),
-        });
-    }
-
-    let evidence = request.embedding;
-    evidence
-        .map
-        .inverse()
-        .map_err(|error| MatrixSubductionError::Arithmetic {
-            reason: error.to_string(),
-        })?;
-    magnetic_embedding::verify_embedding(&geometry, &set, evidence.map, evidence.shift)
-        .map_err(MatrixSubductionError::EmbeddingRejected)?;
-    let realises_record_lattice =
-        magnetic_embedding::realises_record_lattice_checked(&geometry, &set, &evidence.map)?;
-    if evidence.lattice_policy == LatticePolicy::RequireExact && !realises_record_lattice {
-        return Err(MatrixSubductionError::LatticePolicyUnsatisfied {
-            policy: evidence.lattice_policy,
-        });
-    }
-
-    let time_reversal = match (set.antiunitary_classes, request.time_reversal) {
-        (0, given) => given,
-        (_, Some(sign)) => Some(sign),
-        (_, None) => {
-            return Err(MatrixSubductionError::MissingTimeReversal { uni: set.uni });
-        }
-    };
+    let PreparedMatrixRecord {
+        record_label,
+        ordinal,
+        set,
+        evidence,
+        realises_record_lattice,
+        time_reversal,
+    } = prepare_matrix_record(request)?;
 
     // The source's own stored matrices, certified before any of them is used.
     let (mut certified, source_components) = if compound {
@@ -1957,10 +1900,10 @@ fn verify_matrix_gamma_input_for(
         source_label: source_irrep.ml,
         source_convention: LabelConvention::Cdml,
         input_convention: source_identity.convention,
-        record_label: condensing.ml,
+        record_label,
         record_convention: LabelConvention::Cdml,
         direction_index: record_identity.direction_index,
-        ordinal: subgroup.ordinal,
+        ordinal,
         uni: set.uni,
         map: evidence.map,
         shift: evidence.shift,
@@ -1971,6 +1914,117 @@ fn verify_matrix_gamma_input_for(
         actions,
         classes,
         lattice,
+    })
+}
+
+struct PreparedMatrixRecord {
+    record_label: &'static str,
+    ordinal: usize,
+    set: magnetic_embedding::MagneticOperationSet,
+    evidence: EmbeddingEvidence,
+    realises_record_lattice: bool,
+    time_reversal: Option<RealSign>,
+}
+
+fn check_matrix_parent(
+    source_identity: SourceIdentity<'_>,
+    record_identity: RecordIdentity<'_>,
+) -> Result<(), MatrixSubductionError> {
+    if source_identity.parent_sg == 0 || source_identity.parent_sg > 230 {
+        return Err(MatrixSubductionError::UnknownParentSpaceGroup {
+            sg: source_identity.parent_sg,
+        });
+    }
+    if source_identity.parent_sg != record_identity.parent_sg {
+        return Err(MatrixSubductionError::ParentMismatch {
+            source_sg: source_identity.parent_sg,
+            record_sg: record_identity.parent_sg,
+        });
+    }
+    Ok(())
+}
+
+fn prepare_matrix_record(
+    request: &MatrixGammaRequest<'_>,
+) -> Result<PreparedMatrixRecord, MatrixSubductionError> {
+    let parent_sg = request.source.parent_sg;
+    let record_identity = request.record;
+    let condensing = resolve_convention_irrep(
+        record_identity.parent_sg,
+        record_identity.condensing_label,
+        record_identity.convention,
+    )?;
+    let rows = crate::irrep::isotropy::magnetic_isotropy_subgroups(
+        parent_sg,
+        condensing.ml,
+        LabelConvention::Cdml,
+    )
+    .map_err(|error| MatrixSubductionError::DatabaseMismatch {
+        reason: error.to_string(),
+    })?;
+    let Some(subgroup) = rows.get(record_identity.direction_index).copied() else {
+        return Err(MatrixSubductionError::DirectionOutOfRange {
+            sg: parent_sg,
+            label: condensing.ml.to_string(),
+            index: record_identity.direction_index,
+            len: rows.len(),
+        });
+    };
+    let subgroup_record = subgroup.record;
+    let geometry = magnetic_embedding::geometry_of(parent_sg, &subgroup_record)?;
+
+    let set = magnetic_operations(subgroup_record.mag_sg).map_err(|error| {
+        MatrixSubductionError::DatabaseMismatch {
+            reason: error.to_string(),
+        }
+    })?;
+    magnetic_embedding::verify_group(&set).map_err(|error| MatrixSubductionError::GroupProof {
+        reason: error.to_string(),
+    })?;
+    magnetic_embedding::verify_against_database(&set).map_err(|error| {
+        MatrixSubductionError::DatabaseMismatch {
+            reason: error.to_string(),
+        }
+    })?;
+    if set.class_count() != set.classes.len() {
+        return Err(MatrixSubductionError::ClassListInconsistent {
+            classes: set.classes.len(),
+            recorded: set.class_count(),
+        });
+    }
+
+    let evidence = request.embedding;
+    evidence
+        .map
+        .inverse()
+        .map_err(|error| MatrixSubductionError::Arithmetic {
+            reason: error.to_string(),
+        })?;
+    magnetic_embedding::verify_embedding(&geometry, &set, evidence.map, evidence.shift)
+        .map_err(MatrixSubductionError::EmbeddingRejected)?;
+    let realises_record_lattice =
+        magnetic_embedding::realises_record_lattice_checked(&geometry, &set, &evidence.map)?;
+    if evidence.lattice_policy == LatticePolicy::RequireExact && !realises_record_lattice {
+        return Err(MatrixSubductionError::LatticePolicyUnsatisfied {
+            policy: evidence.lattice_policy,
+        });
+    }
+
+    let time_reversal = match (set.antiunitary_classes, request.time_reversal) {
+        (0, given) => given,
+        (_, Some(sign)) => Some(sign),
+        (_, None) => {
+            return Err(MatrixSubductionError::MissingTimeReversal { uni: set.uni });
+        }
+    };
+
+    Ok(PreparedMatrixRecord {
+        record_label: condensing.ml,
+        ordinal: subgroup.ordinal,
+        set,
+        evidence,
+        realises_record_lattice,
+        time_reversal,
     })
 }
 
