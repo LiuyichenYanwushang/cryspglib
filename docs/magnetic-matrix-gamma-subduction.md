@@ -373,3 +373,45 @@ TargetMatrixUncertified 外层来源语义不变，内层保留原始算术原�
 纯幺正配对另有 norm=2 的合法控制和错误norm/缺列/非有限字符负例；单源 A 的 norm=1
 控制保留。公开配对测试从权威 H 行和原始 M 乘积独立核对反幺正系数 λχ(h)，并明确
 区分错误的 λconj(χ(h)) 公式，而不只依赖完整群律/重建最终断言。
+
+## 13. 显式二维 compound Γ 源（P2a / R53）
+
+[新源认证](<../src/irrep/magnetic_matrix_subduction/compound_sources.rs>)
+verify_compound_matrix_gamma_input 只接纳非spinor、物理维数2、Γ、DistinctComponentSum，
+并要求两条不同的权威非实共轭一维CIR。旧 verify_matrix_gamma_input 和四个旧高层入口
+仍拒绝compound；不自动换源或换目标。新高层 subduce_compound_scalar_targets 与
+subduce_compound_conjugate_pair 分别只复用原scalar-A与非实共轭pair目标引擎。
+低层显式认证的模型也可交给原实A/受限实H-C引擎；每条路线必须给出完整分解，不能拼接
+不同路线的重叠成功。没有新增B目标、一般维数框架、setting搜索或依赖。
+
+物理矩阵仍独立检查有限性、形状、正交、单位、raw/typed迹及全部乘法。仅此窄源分支
+要求实commutant维数2；普通源与实H目标仍要求1，绝不全局把门槛改成2。每条具名CIR
+另以忠实实二维化复用原scalar-H的完整群律认证；各自有限、单位模、维数1，完整Seitz
+旋转**和平移**顺序与物理表逐项相同。两行须点点共轭且确实非实，之和给出物理矩阵迹。
+只验证总迹不足：常驻反例将两行的同一非实位置同时共轭，保留总复迹/单位模/共轭关系，
+但两条CIR各自违反群律。全局共轭反而仍是表示，因此具名身份必须来自不可变权威构造器，
+不能从这些代数检查推断。算术错误仍保留Arithmetic，不改说没有乘积或没有表示。
+
+之后复用完整data-Hall、双向心格、旋转覆盖与**一个共同源原点**证明，接原有色群律、Hom、
+copy归一化、全源Gram/投影和逐操作复重建。不是只对所选磁群的部分操作找逐行原点。
+源物理载体的反幺正作用仍是实矩阵 ηD(p)K；不能让两条非实CIR各自冒充可独立继承ηK。
+
+MatrixGammaModel::source_components() 在旧模型返回None，新模型保留两条完整CIR行及
+component/label/irnumber；这些操作坐标是**共同原点平移前的存储源帧**，不是目标H帧。
+source_origin_shift 与嵌入shift仍分开。physical owner保留自己的真实CDML/BC，组件不借用
+owner的合并BC：例如SG75 GM3GM4的owner BC为Γ2Γ4，不能给GM3/GM4伪造独立BC。
+报告scope按显式源家族选择；旧模型/旧报告的原scope字符串不变。新增公开错误
+SourceNotCompound、CompoundSourceInvalid，下游穷尽match需处理。这里认证的是发出的
+Γ操作表示，不是原始档案矩阵字节、basis或gauge来源的更强证明。
+
+[公开回归](<../tests/magnetic_compound_sources.rs>)对全部10个非零源原点compound，双η、
+CDML/规范化BC、scalar与unitary-pair共80次高层调用，独立逐复基/混合向量重建、Gram、
+全投影及所有有色乘法；另有SG75磁C、UNI663的B目标缺口、旧四入口拒绝和域外控制。
+SG85/86/88/201/203覆盖四分之一/八分之一源原点及C/F等心格。旧高低层BC raw-LaTeX
+别名解析差异是另一个既有接口边界；此处的双标签证据使用label(convention)返回的规范拼写。
+
+固定R47几何下的新域单列为69源、3,778记录/源对、双η **7,556次候选**。探索完整测量：
+输入全部认证；scalar-A **5,050**（也可由原实A目标引擎完成）、pair **2,466**（磁C1,896、
+纯幺正packet570），联合 **7,516**，不相加重复A路线。另 **40** 次/20对仍无支持的目标，
+涉及14个已清点非spinor-B UNI；这不是分导成功，也不是数据不存在。UNI663见证现在可
+认证源，但本轮不实现T(a₀)=J K的B目标；窄B留给P3a。最终冻结数字与旧域逐字对照见账本。

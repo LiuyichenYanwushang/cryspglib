@@ -151,11 +151,17 @@ use crate::irrep::magnetic_subduction;
 use crate::irrep::magnetic_summary::{self, MagneticCorepSummary, MagneticKPointSummary};
 use crate::irrep::query;
 use crate::irrep::subduction::{Mat3I, Rat};
-use crate::irrep::types::{CharacterRow, IrrepRecord};
+use crate::irrep::types::{CharacterRow, CompoundConstituentCharacter, IrrepRecord};
 use crate::irrep::wigner;
 
 #[cfg(test)]
 mod source_inventory;
+
+mod compound_sources;
+pub use compound_sources::{
+    COMPOUND_CONJUGATE_PAIR_SCOPE, COMPOUND_SCALAR_TARGET_SCOPE, COMPOUND_SCOPE,
+    verify_compound_matrix_gamma_input,
+};
 
 mod conjugate_pairs;
 pub use conjugate_pairs::{
@@ -413,6 +419,14 @@ pub enum MatrixSubductionError {
     SourceIsSpinor { sg: u8, label: &'static str },
     /// The source irrep is a compound (realified/direct-sum) record.
     SourceIsCompound { sg: u8, label: &'static str },
+    /// The explicit compound-source entry requires a compound physical carrier.
+    SourceNotCompound { sg: u8, label: &'static str },
+    /// Compound metadata/characters do not describe two distinct nonreal conjugate scalar CIRs.
+    CompoundSourceInvalid {
+        sg: u8,
+        label: &'static str,
+        reason: String,
+    },
     /// The source irrep is not two-dimensional.
     SourceDimensionNotTwo {
         sg: u8,
@@ -570,6 +584,12 @@ impl std::fmt::Display for MatrixSubductionError {
             }
             Self::SourceIsCompound { sg, label } => {
                 write!(f, "SG{sg} {label} is a compound source")
+            }
+            Self::SourceNotCompound { sg, label } => {
+                write!(f, "SG{sg} {label} is not a compound source")
+            }
+            Self::CompoundSourceInvalid { sg, label, reason } => {
+                write!(f, "SG{sg} {label} compound source is uncertified: {reason}")
             }
             Self::SourceDimensionNotTwo {
                 sg,
@@ -880,6 +900,7 @@ impl TargetMatrixOperator {
 /// outside; the report borrows it instead of copying it.
 #[derive(Debug)]
 pub struct MatrixGammaModel {
+    source_components: Option<Box<[CompoundConstituentCharacter; 2]>>,
     parent_sg: u8,
     source_label: &'static str,
     source_convention: LabelConvention,
@@ -901,6 +922,25 @@ pub struct MatrixGammaModel {
 }
 
 impl MatrixGammaModel {
+    /// Authoritative CIR rows of an explicitly admitted compound source.
+    /// Their operations stay in the stored source frame, before source_origin_shift();
+    /// they are not the magnetic target H identities or independently stored PIRs.
+    pub fn source_components(&self) -> Option<&[CompoundConstituentCharacter; 2]> {
+        self.source_components.as_deref()
+    }
+
+    pub(crate) fn source_scope(
+        &self,
+        ordinary: &'static str,
+        compound: &'static str,
+    ) -> &'static str {
+        if self.source_components.is_some() {
+            compound
+        } else {
+            ordinary
+        }
+    }
+
     /// Parent space group of the source and the record.
     pub fn parent_sg(&self) -> u8 {
         self.parent_sg
@@ -1006,7 +1046,7 @@ impl MatrixGammaModel {
 
     /// One line stating what this entry point covers.
     pub fn scope(&self) -> &'static str {
-        SCOPE
+        self.source_scope(SCOPE, COMPOUND_SCOPE)
     }
 }
 
@@ -1118,7 +1158,7 @@ impl MatrixSubduction<'_> {
 
     /// One line stating what this entry point covers.
     pub fn scope(&self) -> &'static str {
-        SCOPE
+        self.model.scope()
     }
 }
 
@@ -1435,6 +1475,14 @@ fn certify_irrep_matrices(
     irrep: &IrrepRecord,
     expected_dimension: usize,
 ) -> Result<CertifiedTable, MatrixCertificationProblem> {
+    certify_stored_matrices(irrep, expected_dimension, None)
+}
+
+fn certify_stored_matrices(
+    irrep: &IrrepRecord,
+    expected_dimension: usize,
+    compound_trace: Option<&CharacterRow>,
+) -> Result<CertifiedTable, MatrixCertificationProblem> {
     let declared = irrep.dim as usize;
     if declared != expected_dimension {
         return Err(MatrixCertificationProblem::DeclaredDimensionMismatch {
@@ -1566,18 +1614,28 @@ fn certify_irrep_matrices(
     // Irreducibility over the reals: the real commutant is one-dimensional.
     // (`hom_rows` treats the real and imaginary parts of a *complex* unknown as
     // independent, so it deliberately does not serve as the real commutant.)
-    let commutant = real_commutant_dimension(&table, expected_dimension);
-    if commutant != 1 {
-        return Err(MatrixCertificationProblem::Reducible {
-            commutant_dimension: commutant,
-        });
+    if compound_trace.is_none() {
+        let commutant = real_commutant_dimension(&table, expected_dimension);
+        if commutant != 1 {
+            return Err(MatrixCertificationProblem::Reducible {
+                commutant_dimension: commutant,
+            });
+        }
     }
+    // The narrow compound wrapper separately requires complex-type commutant 2,
+    // two nonreal scalar CIRs, and both complete constituent group laws.
 
     // Cross-check against the typed selected-arm Γ row the production corep
     // path reads, so the certified traces do not rest on one storage array.
-    let row = irrep
-        .ordinary_scalar_selected_arm_block_trace()
-        .map_err(|_| MatrixCertificationProblem::TypedRowMissing)?;
+    let ordinary_row;
+    let row = if let Some(row) = compound_trace {
+        row
+    } else {
+        ordinary_row = irrep
+            .ordinary_scalar_selected_arm_block_trace()
+            .map_err(|_| MatrixCertificationProblem::TypedRowMissing)?;
+        &ordinary_row
+    };
     if row.len() != operators || row.dimension() != expected_dimension {
         return Err(MatrixCertificationProblem::TypedRowShapeMismatch {
             row: row.len(),
@@ -1715,6 +1773,13 @@ fn differs_by_lattice(left: &[Rat; 3], right: &[Rat; 3], lattice: &[[Rat; 3]]) -
 pub fn verify_matrix_gamma_input(
     request: &MatrixGammaRequest<'_>,
 ) -> Result<MatrixGammaModel, MatrixSubductionError> {
+    verify_matrix_gamma_input_for(request, false)
+}
+
+fn verify_matrix_gamma_input_for(
+    request: &MatrixGammaRequest<'_>,
+    compound: bool,
+) -> Result<MatrixGammaModel, MatrixSubductionError> {
     let source_identity = request.source;
     let record_identity = request.record;
     if source_identity.parent_sg == 0 || source_identity.parent_sg > 230 {
@@ -1729,7 +1794,11 @@ pub fn verify_matrix_gamma_input(
         });
     }
     let parent_sg = source_identity.parent_sg;
-    let source_irrep = resolve_matrix_source(source_identity)?;
+    let source_irrep = if compound {
+        resolve_matrix_source_for(source_identity, true)?
+    } else {
+        resolve_matrix_source(source_identity)?
+    };
 
     let condensing = resolve_convention_irrep(
         record_identity.parent_sg,
@@ -1801,14 +1870,21 @@ pub fn verify_matrix_gamma_input(
     };
 
     // The source's own stored matrices, certified before any of them is used.
-    let mut certified =
-        certify_irrep_matrices(source_irrep, SOURCE_DIMENSION).map_err(|problem| {
-            MatrixSubductionError::SourceMatrixUncertified {
-                sg: parent_sg,
-                label: source_irrep.ml,
-                problem,
-            }
-        })?;
+    let (mut certified, source_components) = if compound {
+        let (table, components) = compound_sources::certify(source_irrep)?;
+        (table, Some(Box::new(components)))
+    } else {
+        (
+            certify_irrep_matrices(source_irrep, SOURCE_DIMENSION).map_err(|problem| {
+                MatrixSubductionError::SourceMatrixUncertified {
+                    sg: parent_sg,
+                    label: source_irrep.ml,
+                    problem,
+                }
+            })?,
+            None,
+        )
+    };
     if certified.dimension() != SOURCE_DIMENSION {
         return Err(MatrixSubductionError::SourceDimensionNotTwo {
             sg: parent_sg,
@@ -1871,6 +1947,7 @@ pub fn verify_matrix_gamma_input(
     check_source_law(&classes, &actions, &lattice)?;
 
     Ok(MatrixGammaModel {
+        source_components,
         parent_sg,
         source_label: source_irrep.ml,
         source_convention: LabelConvention::Cdml,
@@ -1921,6 +1998,13 @@ fn resolve_convention_irrep(
 fn resolve_matrix_source(
     source: SourceIdentity<'_>,
 ) -> Result<&'static IrrepRecord, MatrixSubductionError> {
+    resolve_matrix_source_for(source, false)
+}
+
+fn resolve_matrix_source_for(
+    source: SourceIdentity<'_>,
+    compound: bool,
+) -> Result<&'static IrrepRecord, MatrixSubductionError> {
     let irrep = resolve_convention_irrep(source.parent_sg, source.label, source.convention)?;
     if irrep.spinor {
         return Err(MatrixSubductionError::SourceIsSpinor {
@@ -1928,7 +2012,13 @@ fn resolve_matrix_source(
             label: irrep.ml,
         });
     }
-    if irrep.compound_metadata().is_some() {
+    if compound && irrep.compound_metadata().is_none() {
+        return Err(MatrixSubductionError::SourceNotCompound {
+            sg: source.parent_sg,
+            label: irrep.ml,
+        });
+    }
+    if !compound && irrep.compound_metadata().is_some() {
         return Err(MatrixSubductionError::SourceIsCompound {
             sg: source.parent_sg,
             label: irrep.ml,
@@ -2090,11 +2180,6 @@ fn product_class(
 pub fn subduce_matrix_gamma(
     model: &MatrixGammaModel,
 ) -> Result<MatrixSubduction<'_>, MatrixSubductionError> {
-    let source_irrep = resolve_matrix_source(SourceIdentity {
-        parent_sg: model.parent_sg,
-        label: model.source_label,
-        convention: model.source_convention,
-    })?;
     let uni = model.uni;
     let (gamma, context) = prepare_matrix_targets(model)?;
     let source_corep = RealCorep::from_source(&model.actions);
@@ -2123,7 +2208,7 @@ pub fn subduce_matrix_gamma(
     if pieces.is_empty() {
         return Err(MatrixSubductionError::NoMatchingTarget {
             parent_sg: model.parent_sg,
-            source: source_irrep.ml,
+            source: model.source_label,
             uni,
             examined,
         });
@@ -3410,7 +3495,8 @@ impl MatrixTypeCSubduction<'_> {
 
     /// One line stating what this entry point covers.
     pub fn scope(&self) -> &'static str {
-        TYPE_C_SCOPE
+        self.model
+            .source_scope(TYPE_C_SCOPE, compound_sources::COMPOUND_TYPE_C_SCOPE)
     }
 }
 

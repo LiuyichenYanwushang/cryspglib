@@ -77,7 +77,8 @@ pub struct ScalarTargetSubduction<'a> {
 impl ScalarTargetSubduction<'_> {
     /// The explicit target-family boundary; model.scope() describes the legacy entry.
     pub fn scope(&self) -> &'static str {
-        SCALAR_TARGET_SCOPE
+        self.model
+            .source_scope(SCALAR_TARGET_SCOPE, COMPOUND_SCALAR_TARGET_SCOPE)
     }
     /// Original certified real 2D model.
     pub fn model(&self) -> &MatrixGammaModel {
@@ -227,6 +228,53 @@ fn unitary_values(
     Ok(values)
 }
 
+/// Faithful scalar realification, shared by H rows and explicitly admitted CIR sources.
+/// The caller establishes the row's authoritative identity and full-frame binding.
+pub(super) fn certify_scalar_characters(
+    dimension: usize,
+    source_operations: &[crate::irrep::types::SeitzOperation],
+    values: &[Complex64],
+) -> Result<CertifiedTable, MatrixCertificationProblem> {
+    if dimension != 1 || values.is_empty() || values.len() != source_operations.len() {
+        return Err(MatrixCertificationProblem::TypedRowShapeMismatch {
+            row: values.len(),
+            operators: source_operations.len(),
+            dimension,
+        });
+    }
+    let mut operations = Vec::new();
+    let mut lattice = Vec::new();
+    let mut matrices = Vec::new();
+    for (i, (op, value)) in source_operations.iter().zip(values).enumerate() {
+        if !value.re.is_finite() || !value.im.is_finite() {
+            return Err(MatrixCertificationProblem::NonFinite { operation: i });
+        }
+        if !close(value.norm_sqr(), 1.0) {
+            return Err(MatrixCertificationProblem::NotOrthogonal { operation: i });
+        }
+        let rotation = std::array::from_fn(|r| std::array::from_fn(|c| op.rotation[3 * r + c]));
+        let mut translation = [Rat::ZERO; 3];
+        for (axis, x) in translation.iter_mut().enumerate() {
+            *x = exact_fraction(op.translation[axis])
+                .ok_or(MatrixCertificationProblem::TranslationOffGrid { operation: i })?;
+        }
+        if rotation == identity_rotation()
+            && translation != [Rat::ZERO; 3]
+            && !lattice.contains(&translation)
+        {
+            lattice.push(translation);
+        }
+        operations.push((rotation, translation));
+        matrices.push(vec![value.re, -value.im, value.im, value.re]);
+    }
+    check_stored_matrix_law(&operations, &matrices, 2, &lattice)?;
+    Ok(CertifiedTable {
+        dimension: 2,
+        operations,
+        matrices,
+    })
+}
+
 /// Certify a complete authoritative scalar H row and bind it to M's unitary
 /// classes. The caller must independently check its target's summary character.
 pub(super) fn bind_h_row(
@@ -236,42 +284,26 @@ pub(super) fn bind_h_row(
     context: &TargetContext,
 ) -> Result<Vec<Complex64>, MatrixSubductionError> {
     let fail = |s| data_error(context, label, s);
-    if h.row.dimension() != 1 || h.row.is_empty() || h.row.len() != h.row.operations().len() {
-        return Err(fail("invalid scalar H row shape".into()));
-    }
-    let mut operations = Vec::new();
-    let mut lattice = Vec::new();
-    let mut realified = Vec::new();
-    for (i, (op, value)) in h.row.operations().iter().zip(h.row.values()).enumerate() {
-        if !value.re.is_finite() || !value.im.is_finite() || !close(value.norm_sqr(), 1.0) {
-            return Err(fail(format!(
-                "H row {i} is not a finite unit-modulus scalar"
-            )));
-        }
-        let rotation = std::array::from_fn(|r| std::array::from_fn(|c| op.rotation[3 * r + c]));
-        let mut translation = [Rat::ZERO; 3];
-        for (axis, x) in translation.iter_mut().enumerate() {
-            *x = exact_fraction(op.translation[axis])
-                .ok_or_else(|| fail(format!("H translation {i} is off the exact grid")))?;
-        }
-        if rotation == identity_rotation()
-            && translation != [Rat::ZERO; 3]
-            && !lattice.contains(&translation)
-        {
-            lattice.push(translation);
-        }
-        operations.push((rotation, translation));
-        // Faithful realification of a scalar solely for the shared law checker.
-        realified.push(vec![value.re, -value.im, value.im, value.re]);
-    }
-    check_stored_matrix_law(&operations, &realified, 2, &lattice).map_err(|problem| {
-        MatrixSubductionError::TargetMatrixUncertified {
-            uni: context.uni,
-            sg: context.h_sg,
-            label: source.ml,
-            problem,
-        }
-    })?;
+    certify_scalar_characters(h.row.dimension(), h.row.operations(), h.row.values()).map_err(
+        |problem| match problem {
+            MatrixCertificationProblem::TypedRowShapeMismatch { .. } => {
+                fail("invalid scalar H row shape".into())
+            }
+            MatrixCertificationProblem::NonFinite { operation }
+            | MatrixCertificationProblem::NotOrthogonal { operation } => fail(format!(
+                "H row {operation} is not a finite unit-modulus scalar"
+            )),
+            MatrixCertificationProblem::TranslationOffGrid { operation } => {
+                fail(format!("H translation {operation} is off the exact grid"))
+            }
+            problem => MatrixSubductionError::TargetMatrixUncertified {
+                uni: context.uni,
+                sg: context.h_sg,
+                label: source.ml,
+                problem,
+            },
+        },
+    )?;
     let rotations: Vec<_> = h.row.operations().iter().flat_map(|o| o.rotation).collect();
     let translations: Vec<_> = h
         .row

@@ -22,6 +22,58 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 显式二维 compound Γ 源（P2a / R53，2026-10-28；基线 b42dacd）
+
+P2a已完成冻结验收，由主agent亲自实现。新增[窄源认证](<src/irrep/magnetic_matrix_subduction/compound_sources.rs>)
+verify_compound_matrix_gamma_input，及[高层](<src/irrep/magnetic_subduction_api.rs>)两个显式伴随入口
+subduce_compound_scalar_targets / subduce_compound_conjugate_pair；没有自动fallback或B目标实现。
+旧源认证和四个旧高层入口仍SourceIsCompound；已认证模型复用原A/受限C/scalar/pair目标引擎。
+实A消费者不再把可信模型重新送回旧源拒绝器；源/目标scope按模型的显式来源分支，旧字符串不变。
+
+物理表独立验形状、有限性、正交、单位、raw/typed迹和完整群律；窄compound包装另要求实
+commutant=2，两条不同的权威非实共轭scalar CIR，分别复用抽出的旧scalar-H完整行认证。
+逐条比较全部Seitz旋转与平移顺序，不仅总迹；普通源及实H矩阵的commutant=1门槛不变。
+后续完整data-Hall/双向心格/共同原点、有色群律、Hom、等距/投影和复重建链全部复用。
+模型source_components保留两条CIR行及component/label/irnumber；行坐标仍在原点平移前的源帧。
+owner保留真实合并BC，组件不借用它。只用私有Box承载新增来源，不改公开结果枚举的变体和载荷类型。
+新增SourceNotCompound、CompoundSourceInvalid需下游穷尽match处理；Arithmetic仍原样保留。
+范围与坐标/来源限制见[§13](<docs/magnetic-matrix-gamma-subduction.md>)，不夸大原始矩阵basis/gauge证明。
+
+两个前置只读审计提供[API调用链](<target/r53-api-review.md>)和[CIR证明](<target/r53-cir-report.md>)，
+不是本轮最终diff的独立复核。后者独立实跑69源/138 CIR/2,516值/115,144有序标量乘积，21含心源。
+新增模块三项、[公开四项](<tests/magnetic_compound_sources.rs>)：全69源、只改局部相位而总复迹不变
+却两CIR群律各自失败、非有限/非单位模/缺行/off-grid/算术溢出；全10个非零源原点的双η、
+CDML/规范化BC、scalar与unitary-pair共80次高层调用，独立Gram/全投影/所有群乘法/复基与混合向量
+重建，另有SG75磁C、UNI663 B缺口和旧四入口/域外拒绝。全局共轭仍是表示的正控制强调具名身份
+不能由总迹或群律反推；规范化BC证据不外推所有raw-LaTeX别名，解析差异列入P7实测。
+
+[新域冻结审计](<target/logs/r53-accepted/compound-audit.json>)：69源、**2,000条记录**、3,778对×双η
+=**7,556候选**，全部输入认证。scalar-A **5,050**（同样可由原实A目标引擎完成）；pair **2,466**
+=1,896磁C+570纯幺正packet。联合**7,516成功**，不重复相加A路线，也不把unitary packet说成C。
+4/8线程整表逐字相同且等于探索，SHA914c279286691721faff9aa57ed9faee90ffc30c809494212e69057e05ea41d2。
+另**40次/20源记录对**仍为B目标算法缺口，不计成功。冻结driver独立核对每个raw-M幺正字符
+等于真实H行的2χ，所有anti代表平方作用为−I；[身份join](<target/logs/r53-accepted/b-gap-provenance.json>)
+恰好覆盖R52的全部20个非spinor B目标、14个UNI。SG75 GM3GM4→GM2 row0/UNI663现可认证源，
+但尚未提供B目标算子。没有借成功掩盖数据错误，也没有更换固定R47几何来凑覆盖。
+
+冻结**265输入+2个父workspace清单+10driver**；[全电池](<target/logs/r53-accepted/battery-audit.json>)
+**1,014/0**（1,007+7），76壳、80/80池作业、16/16腿exit0。普通三TSV旧行数/SHA/4==8不变。
+冻结debug矩阵模块37/0、新公开4/0；严格debug/release Clippy、doc/Python/oracle、fmt/diff通过，
+精确秩四项控制通过；单斜仍13帧/262记录/105非零原点/0差异。
+[旧矩阵](<target/logs/r53-accepted/matrix-audit.json>)43,492 TSV逐字等于R50；[旧Γ](<target/logs/r53-accepted/gamma-audit.json>)
+16,721 fixed/151,068成功，4/8逐字等于R45，错误/未决0。全部输入、driver和4个测量产物验收后
+哈希不变；仅随后更新账本与计划，其余263输入另核对。并发墙钟不作性能结论。
+
+初稿公开测试的API/生命周期拼写、enum体积lint、探针误选旧rustc依赖和文档末尾空行均已在
+冻结前修正，不是数学红灯。首次Γ命令遗漏--gate，被独立审计拒绝；保留无gate日志，随后用
+**同一冻结二进制**重跑双线程数--gate并审计通过，没有降低门槛或用早期结果替代最终验收。
+
+**下一步P3a/R54尚未实施**：复用H标量、目标群律和二维Hom，显式构造实±1 H行的窄B目标
+T(h)=χ(h)I、T(a₀h)=χ(h)J K、J²=−I；H范数4，不能把Hom实核维当重数。先固定这40次见证，
+其它源/家族仍分别保留边界。87三维、一般复源、非Γ/full-star、spinor及setting/OP等继续按
+[计划](<docs/completion-plan.md>)推进，项目整体未完成。运行时已active/armed（revision8、round18），
+历史R50/R52暂停文字不再是当前状态；未绕过权限、新建或擅自改目标。未删除其它项目、未push/部署。
+
 ### 完整域清点与下一最小源/目标见证（P1 / R52，2026-10-27；基线 0929424）
 
 用户再次明确“继续”。P1完成，[报告](<docs/representation-coverage-inventory.md>)记录全部分区、

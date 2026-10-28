@@ -486,7 +486,9 @@ impl<'a> MagneticSubductionRequest<'a> {
     }
 }
 
-/// The verified ordinary-irrep identity of the subduced source.
+/// The verified parent physical-source identity. Explicit compound companions
+/// retain the owner here and both CIR identities in the verified matrix model;
+/// a compound carrier is not a single complex irreducible representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagneticSourceIdentity {
     /// Parent space group number.
@@ -1232,7 +1234,10 @@ pub struct MagneticScalarTargetsReport {
 impl MagneticScalarTargetsReport {
     /// This entry's target scope, not the legacy real-matrix target family.
     pub fn scope(&self) -> &'static str {
-        matrix::SCALAR_TARGET_SCOPE
+        self.model.source_scope(
+            matrix::SCALAR_TARGET_SCOPE,
+            matrix::COMPOUND_SCALAR_TARGET_SCOPE,
+        )
     }
     /// Certified source model, including the explicit embedding and η.
     pub fn matrix_model(&self) -> &MatrixGammaModel {
@@ -1278,6 +1283,22 @@ impl MagneticScalarTargetsReport {
 pub fn subduce_scalar_targets(
     request: &MagneticSubductionRequest<'_>,
 ) -> Result<MagneticScalarTargetsReport, MagneticSubductionApiError> {
+    scalar_targets_with_source(request, matrix::verify_matrix_gamma_input)
+}
+
+/// Explicit compound-source companion. Requires a certified two-dimensional
+/// nonspinor Gamma physical carrier of two named conjugate scalar CIRs. Uses
+/// exactly the same target family as subduce_scalar_targets; no fallback or type B.
+pub fn subduce_compound_scalar_targets(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticScalarTargetsReport, MagneticSubductionApiError> {
+    scalar_targets_with_source(request, matrix::verify_compound_matrix_gamma_input)
+}
+
+fn scalar_targets_with_source(
+    request: &MagneticSubductionRequest<'_>,
+    verify: fn(&MatrixGammaRequest<'_>) -> Result<MatrixGammaModel, MatrixSubductionError>,
+) -> Result<MagneticScalarTargetsReport, MagneticSubductionApiError> {
     let ResolvedMagneticRequest {
         source,
         source_identity,
@@ -1287,7 +1308,7 @@ pub fn subduce_scalar_targets(
         embedding,
         time_reversal,
     } = resolve_magnetic_request(request)?;
-    let model = matrix::verify_matrix_gamma_input(
+    let model = verify(
         &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
     )?;
     let pieces = matrix::subduce_matrix_gamma_scalar_targets(&model)?
@@ -1324,7 +1345,10 @@ pub struct MagneticConjugatePairReport {
 impl MagneticConjugatePairReport {
     /// Explicit target scope, distinct from the legacy matrix model scope.
     pub fn scope(&self) -> &'static str {
-        matrix::CONJUGATE_PAIR_SCOPE
+        self.model.source_scope(
+            matrix::CONJUGATE_PAIR_SCOPE,
+            matrix::COMPOUND_CONJUGATE_PAIR_SCOPE,
+        )
     }
     /// Certified source, η, original geometry and source-origin witness.
     pub fn matrix_model(&self) -> &MatrixGammaModel {
@@ -1367,6 +1391,22 @@ impl MagneticConjugatePairReport {
 pub fn subduce_conjugate_pair(
     request: &MagneticSubductionRequest<'_>,
 ) -> Result<MagneticConjugatePairReport, MagneticSubductionApiError> {
+    conjugate_pair_with_source(request, matrix::verify_matrix_gamma_input)
+}
+
+/// Explicit compound-source companion. Requires a certified two-dimensional
+/// nonspinor Gamma physical carrier of two named conjugate scalar CIRs. Uses
+/// exactly the same target family as subduce_conjugate_pair; no fallback or type B.
+pub fn subduce_compound_conjugate_pair(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticConjugatePairReport, MagneticSubductionApiError> {
+    conjugate_pair_with_source(request, matrix::verify_compound_matrix_gamma_input)
+}
+
+fn conjugate_pair_with_source(
+    request: &MagneticSubductionRequest<'_>,
+    verify: fn(&MatrixGammaRequest<'_>) -> Result<MatrixGammaModel, MatrixSubductionError>,
+) -> Result<MagneticConjugatePairReport, MagneticSubductionApiError> {
     let ResolvedMagneticRequest {
         source,
         source_identity,
@@ -1376,7 +1416,7 @@ pub fn subduce_conjugate_pair(
         embedding,
         time_reversal,
     } = resolve_magnetic_request(request)?;
-    let model = matrix::verify_matrix_gamma_input(
+    let model = verify(
         &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
     )?;
     let piece = matrix::subduce_matrix_gamma_conjugate_pair(&model)?

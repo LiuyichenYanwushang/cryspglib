@@ -74,7 +74,8 @@ impl ConjugatePairSubduction<'_> {
     }
     /// This entry's explicit target boundary, not model.scope().
     pub fn scope(&self) -> &'static str {
-        CONJUGATE_PAIR_SCOPE
+        self.model
+            .source_scope(CONJUGATE_PAIR_SCOPE, COMPOUND_CONJUGATE_PAIR_SCOPE)
     }
     /// The full pair with both authoritative H identities.
     pub fn piece(&self) -> &ConjugatePairPiece {
