@@ -1438,6 +1438,118 @@ fn conjugate_pair_with_source(
     })
 }
 
+/// Owned complete narrow type-B result. One real scalar H identity is repeated
+/// in the 2D target; it is not a pair of distinct H irreps or two type-A copies.
+#[derive(Debug)]
+pub struct MagneticTypeBReport {
+    model: MatrixGammaModel,
+    source: MagneticSourceIdentity,
+    condensing: MagneticCondensingIdentity,
+    record: MagneticRecordIdentity,
+    embedding: MagneticEmbeddingIdentity,
+    piece: matrix::MatrixSubductionPiece,
+    h_source: crate::irrep::magnetic_summary::SourceIrrepSummary,
+    storage: matrix::HCharacterStorage,
+}
+impl MagneticTypeBReport {
+    /// Explicit target boundary, distinct from the legacy matrix model scope.
+    pub fn scope(&self) -> &'static str {
+        self.model
+            .source_scope(matrix::TYPE_B_SCOPE, matrix::COMPOUND_TYPE_B_SCOPE)
+    }
+    /// Certified source, eta, geometry and source-origin proof.
+    pub fn matrix_model(&self) -> &MatrixGammaModel {
+        &self.model
+    }
+    /// Physical parent source identity, independent of the condensing irrep.
+    pub fn source(&self) -> &MagneticSourceIdentity {
+        &self.source
+    }
+    /// Selected condensing identity.
+    pub fn condensing(&self) -> &MagneticCondensingIdentity {
+        &self.condensing
+    }
+    /// Original magnetic record.
+    pub fn record(&self) -> &MagneticRecordIdentity {
+        &self.record
+    }
+    /// Verified embedding, not an OP-stabilizer assertion.
+    pub fn embedding(&self) -> &MagneticEmbeddingIdentity {
+        &self.embedding
+    }
+    /// The complete two-dimensional target and its exhibited matrix intertwiner.
+    pub fn piece(&self) -> &matrix::MatrixSubductionPiece {
+        &self.piece
+    }
+    /// The single genuine H identity, repeated twice in the target restriction.
+    pub fn h_source(&self) -> &crate::irrep::magnetic_summary::SourceIrrepSummary {
+        &self.h_source
+    }
+    /// Authoritative storage of that one H row.
+    pub fn storage(&self) -> &matrix::HCharacterStorage {
+        &self.storage
+    }
+    /// Source dimension, two.
+    pub fn source_dimension(&self) -> u32 {
+        self.model.source_dimension()
+    }
+    /// Exhibited complete-carrier coverage, not the Hom real kernel dimension.
+    pub fn covered_dimension(&self) -> u32 {
+        self.piece.covered_dimension()
+    }
+}
+
+/// Explicit real-scalar-H type-B companion for the original noncompound source.
+/// No old target entry dispatches here automatically.
+pub fn subduce_type_b(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticTypeBReport, MagneticSubductionApiError> {
+    type_b_with_source(request, matrix::verify_matrix_gamma_input)
+}
+/// The same narrow B target, with explicit certified compound source admission.
+pub fn subduce_compound_type_b(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticTypeBReport, MagneticSubductionApiError> {
+    type_b_with_source(request, matrix::verify_compound_matrix_gamma_input)
+}
+fn type_b_with_source(
+    request: &MagneticSubductionRequest<'_>,
+    verify: fn(&MatrixGammaRequest<'_>) -> Result<MatrixGammaModel, MatrixSubductionError>,
+) -> Result<MagneticTypeBReport, MagneticSubductionApiError> {
+    let ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding,
+        time_reversal,
+    } = resolve_magnetic_request(request)?;
+    let model = verify(
+        &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
+    )?;
+    let out = matrix::subduce_matrix_gamma_type_b(&model)?;
+    let piece = out.piece().clone();
+    let h_source = out.h_source().clone();
+    let storage = out.storage().clone();
+    let embedding = MagneticEmbeddingIdentity {
+        map: *model.map(),
+        shift: *model.shift(),
+        lattice_policy: model.lattice_policy(),
+        realises_record_lattice: model.realises_record_lattice(),
+    };
+    Ok(MagneticTypeBReport {
+        model,
+        source: source_identity,
+        condensing: condensing_identity,
+        record: record_identity,
+        embedding,
+        piece,
+        h_source,
+        storage,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // R32: restricted paired type-C entry point
 // ---------------------------------------------------------------------------

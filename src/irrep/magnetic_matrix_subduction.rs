@@ -163,6 +163,11 @@ pub use compound_sources::{
     verify_compound_matrix_gamma_input,
 };
 
+mod type_b_targets;
+pub use type_b_targets::{
+    COMPOUND_TYPE_B_SCOPE, MatrixTypeBSubduction, TYPE_B_SCOPE, subduce_matrix_gamma_type_b,
+};
+
 mod conjugate_pairs;
 pub use conjugate_pairs::{
     CONJUGATE_PAIR_SCOPE, ConjugatePairKind, ConjugatePairPiece, ConjugatePairSubduction,
@@ -2324,10 +2329,14 @@ fn has_unitary_overlap(
         }
         CorepType::A => 1.0,
         CorepType::C => 2.0,
-        _ => {
-            return Err(error(
-                "the unitary overlap gate is only for type A/C".into(),
-            ));
+        CorepType::B => {
+            if corep.source_irreps.len() != 1
+                || corep.source_irreps[0].dim == 0
+                || 2 * usize::from(corep.source_irreps[0].dim) != corep.dim
+            {
+                return Err(error("type B must double one nonzero H source".into()));
+            }
+            4.0
         }
     };
     let identity = find_identity_class(&context.classes)
@@ -2377,6 +2386,7 @@ fn has_unitary_overlap(
     }
     // A single H irrep has norm one. A purely unitary conjugate packet,
     // like C|H, consists of two inequivalent irreducibles and has norm two.
+    // B|H repeats one irrep twice, hence norm four (not a multiplicity).
     // Malformed/non-finite data and nonintegral overlaps are never zeroes.
     inner /= count as f64;
     norm /= count as f64;

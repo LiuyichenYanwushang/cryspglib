@@ -102,10 +102,11 @@ fn realification(z: Complex64) -> Vec<f64> {
     vec![z.re, -z.im, z.im, z.re]
 }
 
-/// A nonreal character and its conjugate have the real carrier R(χ). In the
-/// magnetic C case χ is invariant under a0 conjugation, so R(sqrt(χ(a0²))) K
-/// supplies a0. The complete law below proves this condition instead of assuming it.
-fn pair_table(
+/// Realify a certified scalar H character and extend through the chosen coset.
+/// Callers distinguish nonreal C/unitary pairs from real repeated-H type B.
+/// R(sqrt(χ(a0²))) K supplies a0; the complete law proves square and twist
+/// compatibility rather than inferring them from the character alone.
+pub(super) fn realified_scalar_table(
     corep: &MagneticCorepSummary,
     context: &TargetContext,
     values: &[Complex64],
@@ -274,7 +275,7 @@ pub fn subduce_matrix_gamma_conjugate_pair(
             continue;
         }
         examined.push(corep.label.clone());
-        let table = pair_table(corep, &context, &values[0], anti)?;
+        let table = realified_scalar_table(corep, &context, &values[0], anti)?;
         let (_, copies) = matching_copies(&RealCorep::from_source(&model.actions), &table);
         if copies.is_empty() {
             continue;
@@ -481,7 +482,7 @@ mod tests {
                         negative_squares += 1;
                     }
                 }
-                let table = pair_table(&c, &context, &v, a).unwrap();
+                let table = realified_scalar_table(&c, &context, &v, a).unwrap();
                 let (kernel, copies) = matching_copies(&RealCorep::from_source(&m.actions), &table);
                 assert_eq!(kernel.len(), if unitary { 4 } else { 2 });
                 assert_eq!(copies.len(), 1);
@@ -534,7 +535,7 @@ mod tests {
             .position(|g| g.time_reversal)
             .unwrap();
         assert!(
-            matches!(pair_table(c,&context,&v,Some(a)),Err(MatrixSubductionError::TargetCorepInconsistent{label,..}) if label==c.label)
+            matches!(realified_scalar_table(c,&context,&v,Some(a)),Err(MatrixSubductionError::TargetCorepInconsistent{label,..}) if label==c.label)
         );
     }
     #[test]
@@ -554,8 +555,8 @@ mod tests {
             .iter()
             .position(|g| g.time_reversal)
             .unwrap();
-        assert!(pair_table(&c, &context, &v[..1], Some(a)).is_err());
-        assert!(pair_table(&c, &context, &v, Some(context.classes.len())).is_err());
+        assert!(realified_scalar_table(&c, &context, &v[..1], Some(a)).is_err());
+        assert!(realified_scalar_table(&c, &context, &v, Some(context.classes.len())).is_err());
         for bad in [0.5, f64::NAN, f64::INFINITY] {
             let mut v = v.clone();
             let i = context
@@ -565,10 +566,10 @@ mod tests {
                 .unwrap();
             v[i] = Complex64::new(bad, 0.);
             assert!(
-                matches!(pair_table(&c,&context,&v,Some(a)),Err(MatrixSubductionError::TargetCorepInconsistent{label,..}) if label==c.label)
+                matches!(realified_scalar_table(&c,&context,&v,Some(a)),Err(MatrixSubductionError::TargetCorepInconsistent{label,..}) if label==c.label)
             );
         }
-        let table = pair_table(&c, &context, &v, Some(a)).unwrap();
+        let table = realified_scalar_table(&c, &context, &v, Some(a)).unwrap();
         let mut tampered = table.clone();
         tampered.operators[a].entries[0] += 0.25;
         assert!(check_target_law(&tampered, &context).is_err());

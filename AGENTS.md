@@ -22,6 +22,59 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 实标量 H 的显式二维 Type-B（P3a / R54，2026-10-28；基线 0419b7b）
+
+P3a已完成冻结验收，由主agent亲自实现。[低层窄B入口](<src/irrep/magnetic_matrix_subduction/type_b_targets.rs>)
+subduce_matrix_gamma_type_b 复用已认证二维模型；[高层](<src/irrep/magnetic_subduction_api.rs>)
+subduce_type_b 仍用旧noncompound源认证，subduce_compound_type_b 才显式接compound。
+旧四入口和新普通B入口对compound源仍拒绝；旧A/受限C/scalar/pair不自动fallback到B。
+新增报告保留一个真实H来源及storage，父源的两个CIR仍分别保留，不伪造第二条H记录。
+旧公开结果枚举/错误变体、其它来源与适用域不变，无新依赖、矩阵框架或setting搜索。
+
+B|H=χ⊕χ的范数是4；共享排除门槛先检查唯一非零H来源与加倍维数，再验证完整summary字符、
+身份、范数及整数重叠，只有零重叠可跳过。正重叠复用完整H行认证/data-Hall绑定；逐列确认2χ
+后才排除非实H。实±1 H复用原实二维化/陪集表，令T(h)=χ(h)I、T(a₀h)=χ(h)J K，
+J=[[0,−1],[1,0]]，并明确检查J²=−I；不是用iI K（平方+I），也不因全群律成立就误收两个A。
+仅新B路径规范实值的±0虚部，旧pair算法只重命名共享函数。全部平方/扭曲/陪集群律、Arithmetic、
+复Hom、copy归一化、全源Gram/投影及逐操作复重建保留。Hom实核维4只产生一个完整二维copy，
+不是重数4。边界与来源说明见[§14](<docs/magnetic-matrix-gamma-subduction.md#L419>)。
+
+新增4项模块与[4项公开回归](<tests/magnetic_type_b_targets.rs>)。20个目标/14 UNI、双η/CDML与
+规范化BC的80次标准几何调用，覆盖SG85/86/88六个源的非零原点；另四种反射map+半格嵌入shift
+配置确实改变anti源矩阵的符号，仍逐原始M索引核对真实H、χJ K、全有序群律与复向量重建。
+模块覆盖全部128个商群anti代表，及正平方假B、局部符号只保留平方却破坏陪集律、D8中H群律/
+负平方成立但扭曲失败、真实非实CIR的范围排除、缺失/非有限/身份/范数错误与算术溢出。
+D8是合成代数控制，不冒称表格来源；运行时表示证明也不外推原始档案basis/gauge或raw-LaTeX别名。
+
+[全域冻结审计](<target/logs/r54-accepted/matrix-audit.json>)：69源、2,000记录、3,778对×两η
+=**7,556全部完整分导**，其中A5,050、pair2,466（1,896磁C+570纯幺正packet）、新增B**40**。
+新增恰为R53原40缺口/20对/14 UNI/20非spinor B目标，不与任何旧完整路线重叠；不拼接部分结果。
+旧177源/43,492调用新增B为0，全部原12字段逐字等于R53/R50；compound原12字段逐字等于R53。
+新的14字段TSV在4/8线程间及与探索结果逐字相同；compound SHA
+30f1057705aabf0a9877ff31a182886bf92a8a97e10a5d529dc2bf89dbf61e9c。
+七种审计破坏控制均拒绝；64位Debug负载指纹不冒称完整矩阵字节或加密等同性证明。
+
+冻结267输入、2父workspace清单、6driver；[完整电池](<target/logs/r54-accepted/battery-audit.json>)
+**1,022/0**（1,014+8），77测试壳、81/81池作业、16/16腿exit0。普通三TSV原行数/SHA/4==8
+不变；冻结debug模块41/0、公开4/0，严格debug/release Clippy、doc/Python/oracle、fmt/diff通过。
+精确秩四控制通过，单斜仍13帧/262记录/105非零原点/0差异；[实一维Γ](<target/logs/r54-accepted/gamma-audit.json>)
+仍16,721 fixed/151,068成功、全部错误/未决0，4/8逐字等于R45，SHA655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd。
+267输入在全部验收前后相同，driver/三个测量产物/六份参考数据最终校验通过；仅随后更新本账本
+与计划，其余265输入再核对。并发墙钟不作性能结论。
+
+[最后独立实现复核](<target/r54-final-review.md>)在六文件及直接调用链内未发现已确认正确性缺陷；
+另链接本轮44dd01a8发布库执行四元数基/混合gauge、200次复重建与旧来源拒绝控制，全部通过。
+复核没有重跑整套电池或审计全域TSV，不能代替本方验收。[前置数学](<target/r54-math-report.md>)/
+[夹具](<target/r54-fixtures-report.md>)审计使用的是旧R53库，不冒称新实现执行证据。
+初稿测试的核长度、整数/借用/错误类型与检查职责错配、Clone-on-Copy lint、审计旧文件名和
+复核探针panic策略均在冻结前修正；没有把编译错误当数学红灯，也未降低全群律或数据门槛。
+
+**下一步P2b/R55尚未实施**：87个实三维Γ源、19,190对/38,380双η候选先清点完整目标组合，
+再最小扩展源/目标与Hom；不能假定一个单一家族路线总能覆盖三维源，更不能把字符内积当重数证明。
+三维、一般复源、连续参数、磁非Γ/full-star、spinor、一般setting/OP及公开交付继续按
+[计划](<docs/completion-plan.md>)推进。项目整体未完成；目标仍active/armed、revision8/round19。
+历史暂停文字不再是当前状态；没有删除其它项目、push或部署。
+
 ### 显式二维 compound Γ 源（P2a / R53，2026-10-28；基线 b42dacd）
 
 P2a已完成冻结验收，由主agent亲自实现。新增[窄源认证](<src/irrep/magnetic_matrix_subduction/compound_sources.rs>)
