@@ -22,6 +22,72 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### SG3 标量β物理线的八来源闭合（P4 / R60，2026-10-29；基线e71cac8）
+
+主agent亲自增加六条不可变来源30/46/47/48/49/50及负C₂点表，形成LD1LE1/LD2LE2、
+U1UA1/U2UA2、V1VA1/V2VA2、W1WA1/W2WA2的完整八来源窄域。真实CIR分别为LD1/2、U1/2、
+V1/2、W1/2；SG3中PIR/CIR编号恰相同，但仍是两个档案命名空间，没有LE/UA/VA/WA存储行。
+四组k₀依次(0,0,0)、(1/2,0,1/2)、(0,0,1/2)、(1/2,0,0)，方向均(0,1,0)，C₂点值±1。
+[实现](<src/irrep/subduction_physical_line.rs>)复用已有完整k求值、整字符共轭、共同折叠/分导/重建及精确分区；
+**没有改求解器、算术、公开API或载荷布局**。LD1与负点值LD2的seed_table均为Some，六个offset来源为None；
+原29/45、W73、旧单CIR及高层路由不变。边界见[契约](<docs/physical-line-subduction.md>)。
+
+[独立前置审计](<target/r60-contract-report.md>)及[原始核验器](<scripts/verify_physical_line_sources.py>)均确认
+八条PIRdim2/CIRdim1/irtype3/kcount=pmkcount=1，E/C₂y完整Seitz与irtranslation为零，点矩阵I₂/εI₂。
+完整字符为ε(R)exp(2πi(k₀+b e_y)·t)；实ε和2k₀只从配对等价条件中消去，不能从实际字符消去。
+g/h切点与周期证明不变；每源36周期点代表/36区间，含右端点52次点出现。F1/G1两参数面与
+GP1GQ1三参数体仍拒绝，不把八条标量线称为全部SG3。正式源证书有18,144 PIR、36,288 CIR/共轭
+精确乘积、1,008复化、432端点矩阵及56范数模型；x/z轴、负点符号和合成irtranslation漏项控制保持。
+前置审计独立穷尽46 owners/50原始固定CIR及各臂的3,584命中方程：48 CIR命中，无新增切点；
+SG5 V1#89/L1#90不命中。记录39四分之一点的owner依次Z1Z2、E1E2、D1D2、C1C2，负点符号
+交换种子/共轭归属及整数/半整数重复分支；不能复制正点来源的标签。
+
+新增[3项公开回归](<tests/physical_line_subduction.rs>)，共14/0。独立x/z整数奇偶与点符号oracle：
+1,280调用/24,800原始公式矩阵，49,792有理分类比较加MIN/MAX；另以[原始端点夹具](<tests/physical_line_boundaries.tsv>)
+核对全部416次点的真实CIR/owner/component索引及288区间的三个内点，共1,280调用/24,880矩阵。
+[正式八源采样](<target/logs/r60-accepted-v2/cohort-audit.json>)每个线程数4/8均为**92,160调用/1,785,600矩阵**，
+每源11,520调用、720参数、144边界样本；八张完整16字段表4==8，原29与45逐字等于R59，无字段豁免。
+11种cohort破坏控制及原两源各8种控制均拒绝。采样不冒称穷尽所有有理参数。
+
+[最终独立实现复核](<target/r60-final-review.md>)实际链接新库SHA
+c2b9428ffc01405848f1645677d150162403d7a17d16b27b078d2ecbf475ac32，给出有界PASS，无已确认缺陷。
+独立1/48整数前向map、混合负平移、21,920精确查询（含MIN/MAX与2⁻⁹⁰/2⁻¹²⁰邻域）、3,840数值调用、
+81,152完整原始2×2矩阵、3,480真实CIR/owner操作、2,640拒绝及576原始群律自检通过。原29/45源、
+分区、逐点完整Debug与R59 **无任何归一化/字段排除**，并含旧73W及单CIR样本：6,011,961字节，
+SHAb6d7362ed68cd25b99151be44eb66f4aeba85ae6efbbc723fa9ead7a5ee6f897。前置R59库仅作几何/目录证据，
+没有冒充R60执行。两位审计全部作业收齐；最终复核不是全库保证或代跑完整电池。
+
+最终v2冻结276输入、2父清单、14原driver及5份仅改输出路径的审计副本、6个相同产物、51参考。[完整电池](<target/logs/r60-accepted-v2/battery-audit.json>)
+**1,052/0**（1,049+3），80壳、84/84池作业、16/16腿exit0；debug14/模块2、doc、严格debug/release
+Clippy、Python/native源、exact-rank4、fmt/diff通过；官方单斜13帧/262行/105非零原点/0差异。
+旧二维43,492/compound7,556全部14字段、三维38,380全部16字段4/8逐字等于R59；标量Γ151,068
+仍等于R45。[Γ联合](<target/logs/r60-accepted-v2/gamma-domain-audit.json>)仍1,313源/16,721记录/240,496双η调用；
+普通366,260及W73/1,006上下文/5,756行、三TSV行数/SHA保持。所有冻结项验收前后逐项通过，
+仅随后更新三账本，其余273输入另验。全部后台作业收齐，无运行中工作，不作并发墙钟性能结论。
+
+初稿Rust测试的tab字符未转义导致fmt拒绝，已在冻结前修正；read字符限额导致端点文件首次只返回394/417行，
+完整性断言先拒绝，再分页读全生成416行夹具。JSON也分页读取。合并多个等待超过外层工具时限，后台验收
+未被停止，恢复状态后逐个收齐exit0；收尾handoff工具程序一次括号语法错误无副作用，随后修正。
+独立探针的初稿类型标注错误也已修正。以上不是数学红灯，没有放宽门禁或改变冻结driver来迁就结果。
+
+首次完整验收后，暂存新增TSV才发现400行空尾字段触发git diff --cached --check；此前未暂存的新文件
+不在普通git diff检查中。仅交换seed/conjugate两组owner与component列，让末列非空；测试仅作三处索引替换。
+保留[原夹具](<target/r60-pre-format-boundaries.tsv>)与[原测试](<target/r60-pre-format-public-test.rs>)，
+[原review清单](<target/r60-review-inputs.sha256>)不改，另建[仅两路径映射清单](<target/r60-review-preserved-inputs.sha256>)。
+[最终独立格式等价复核](<target/r60-format-closure-review.md>)确认全部416行/13字段与原始表逐项相同、
+832组种子/共轭tuple保持、Rust整个文件仅三个字符替换；未删断言或放宽门槛。旧Python的OrderedDict比较
+因列顺序改变而拒绝，改为比较全部字段的dict映射后通过，不删除空组分。首位格式复核者在最终报告前失败，
+不把其进度消息算完成；替代复核者独立重做并正式提交PASS。生产源、helper、脚本、契约及六产物字节保持。
+**上述最终证据全部来自v2五腿完整重跑**，不是用首次成功替代；全部数字表亦逐字等于首次，最终暂存/工作区
+diff检查均通过。原实现复核与后续格式等价复核分开记录，不谎称原review清单直接匹配换列后的文件。
+
+原5,444缺口现有**8个**独立显式物理入口及分区，另**5,436**待接，不混入旧W73。
+后续若获准恢复，候选是先核对[SG4原始螺旋线清点](<target/r61-sg4-inventory.json>)的矩阵、完整Seitz/irtranslation与字符周期，
+不能直接套用P2整数平移/模1证明。已知该清点的PIR/CIR六对编号不同、螺旋的Seitz和irtranslation均含y=1/2；
+尚未认证点矩阵或接入生产。其它线/面/体、磁非Γ（先SG1 Z1）、spinor、setting/OP、别名和交付继续按
+[计划](<docs/completion-plan.md>)保留为未完成工作。**依用户最新指令，本批收尾提交后停止，不启动R61**；
+持久目标将暂停，等待新指令，不把本批完成标成整个项目完成。未删除其它项目、push或部署。
+
 ### 显式非零偏置物理线 U1UA1（P4 / R59，2026-10-29；基线24b349a）
 
 主agent亲自接入[SG3 PIR45 U1UA1](<src/irrep/subduction_physical_line.rs>)，k=(1/2,b,1/2)。

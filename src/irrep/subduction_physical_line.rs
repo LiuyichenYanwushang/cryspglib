@@ -1,9 +1,11 @@
 //! Explicit physical line sources, separate from the original 73 W tables.
 //!
-//! The certified domain is SG3 PIR#29 `LD1LE1`, k=(0,b,0), and PIR#45
-//! `U1UA1`, k=(1/2,b,1/2). Each has ONE stored scalar CIR (#29 LD1 or #45 U1),
-//! not an independent LE1 or UA1 row. The physical carrier is that CIR at +k
-//! and its derived conjugate at -k, including the entire offset. Both component
+//! The certified domain is the eight SG3 scalar beta lines: LD1LE1/LD2LE2,
+//! U1UA1/U2UA2, V1VA1/V2VA2 and W1WA1/W2WA2. They have transverse offsets
+//! (0,0), (1/2,1/2), (0,1/2), (1/2,0), respectively, and C2 point sign +1/-1.
+//! Each has ONE actual scalar CIR (LD1/2, U1/2, V1/2, W1/2), not a stored
+//! partner row. Its physical carrier pairs that CIR at +k with its derived
+//! conjugate at -k, including the entire offset and point sign. Both component
 //! arms enter one common folding, block solve and full character reconstruction.
 //! Assigning dimension two to the +k table would instead describe two copies of
 //! the same CIR and gives wrong translation/screw characters.
@@ -14,7 +16,7 @@
 //! including its reducible specializations, not a new endpoint irrep label.
 //!
 //! This entry restricts to an explicitly supplied, validated fixed isotropy
-//! context. It does not claim either line owns that context. There is no automatic
+//! context. It does not claim any line owns that context. There is no automatic
 //! high-level routing, W-row insertion or general affine-source support. The
 //! separate exact partition certifies geometry/character equivalence, not labels.
 //! All pointwise evaluation uses exact rational b and the existing
@@ -116,8 +118,16 @@ const SG3_SCALAR_POINT_OPERATIONS: &[LittleOperation] = &[
     },
 ];
 
-// Exact pinned PIR/CIR #29 and #45: irtype=3, one stored k arm, P centering,
-// E/C2y point matrices I2/1, zero stored Seitz translations AND irtranslations.
+const SG3_NEGATIVE_POINT_OPERATIONS: &[LittleOperation] = &[
+    SG3_SCALAR_POINT_OPERATIONS[0],
+    LittleOperation {
+        character: [-1, 0],
+        ..SG3_SCALAR_POINT_OPERATIONS[1]
+    },
+];
+
+// Eight pinned scalar beta sources: irtype=3, one stored k arm, P centering,
+// E/C2y point matrices I2/(epsilon I2), zero Seitz AND irtranslations.
 // Hence the existing seed character D(R) exp(+2pi i k.t) is the native CIR.
 // The original 73 W tables and their source/context lookup are not modified.
 static SOURCES: &[PhysicalLineSource] = &[
@@ -155,10 +165,100 @@ static SOURCES: &[PhysicalLineSource] = &[
             operations: SG3_SCALAR_POINT_OPERATIONS,
         },
     },
+    PhysicalLineSource {
+        label: "LD2LE2",
+        pir_irnumber: 30,
+        seed_irnumber: 30,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "LD2",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "U2UA2",
+        pir_irnumber: 46,
+        seed_irnumber: 46,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "U2",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "V1VA1",
+        pir_irnumber: 47,
+        seed_irnumber: 47,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "V1",
+            k_label: "V",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "V2VA2",
+        pir_irnumber: 48,
+        seed_irnumber: 48,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "V2",
+            k_label: "V",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "W1WA1",
+        pir_irnumber: 49,
+        seed_irnumber: 49,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "W1",
+            k_label: "W",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "W2WA2",
+        pir_irnumber: 50,
+        seed_irnumber: 50,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "W2",
+            k_label: "W",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
 ];
 
 /// Look up an explicitly certified physical line by its exact PIR label.
-/// SG3 LD1LE1 and U1UA1 have distinct native CIR identities and affine offsets.
+/// All eight SG3 scalar beta lines retain their native CIR, offset and point sign.
 pub fn physical_line_source(parent_sg: u8, label: &str) -> Option<&'static PhysicalLineSource> {
     SOURCES
         .iter()
@@ -518,10 +618,11 @@ impl<'a> PhysicalLinePartition<'a> {
     }
 }
 
-/// Partition either certified SG3 physical pair exactly over a parent period.
+/// Partition any certified SG3 scalar physical pair over a parent period.
 ///
-/// Here D±({R|t})=exp(±2πi(k0.t+b t_y)). Since 2k0.t is integral, the
-/// offset cancels from the equality conditions (not the characters). Every subgroup
+/// Here D±({R|t})=epsilon(R) exp(±2πi(k0.t+b t_y)), epsilon(R) in {1,-1}.
+/// The same real point sign cancels when comparing the two characters. Since
+/// 2k0.t is integral, the offset cancels too (not from their values). Every subgroup
 /// rotation fixes y. Thus each restricted component is already a scalar irrep.
 /// Child momenta coincide iff 2b e_y is in L_H*, computed with the existing exact
 /// lattice-coordinate step solver. The full characters coincide only if, in
@@ -558,7 +659,7 @@ pub fn partition_physical_line_with_embedding<'a>(
 ) -> Result<PhysicalLinePartition<'a>, FullStarError> {
     use super::super::line_domain as domain;
     validate_line_context(subgroup, embedding, source.seed)?;
-    // Both certified P2 sources have trivial point matrices and 2*k0 in the
+    // All certified P2 sources have real scalar point characters and 2*k0 in the
     // parent reciprocal lattice. Integral parent translations then cancel k0
     // from BOTH the momentum-collision and full-character-equality equations.
     // This is not a general affine congruence solver.

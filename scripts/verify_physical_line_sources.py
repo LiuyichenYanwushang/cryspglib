@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact native proof for SG3 PIR29 plus the separate PIR45 offset control.
+"""Exact native proof for all eight SG3 scalar physical conjugate lines.
 
 Uses pinned archive readers and existing Q(zeta_24) arithmetic; no runtime iso
 call or new solver. Pair with tests/physical_line_subduction.rs to bind these
@@ -74,9 +74,26 @@ parameters = tuple(map(F, ['1/3','-1/3','1/4','-1/4','0','1/2','1']))
 db = load_exact_iso_irrep_sources()
 pirs = {r.irrep_label:r for r in db.pir_records if r.spacegroup == 3}
 cirs = {r.irrep_label:r for r in db.cir_records if r.spacegroup == 3}
-assert 'LE1' not in cirs and 'UA1' not in cirs
-assert (pirs['LD1LE1'].irnumber,pirs['U1UA1'].irnumber,cirs['LD1'].irnumber,cirs['U1'].irnumber) == (29,45,29,45)
-selected = [pirs[s] for s in ('LD1LE1','U1UA1','GM1','Z1','A1','E1')]+[cirs[s] for s in ('LD1','U1','GM1','Z1','A1','E1')]
+# Explicit native identities, transverse half-offset bits, and C2 point sign.
+SOURCES = (
+    ('LD1LE1','LD1',29,0,0,1), ('LD2LE2','LD2',30,0,0,-1),
+    ('U1UA1','U1',45,1,1,1), ('U2UA2','U2',46,1,1,-1),
+    ('V1VA1','V1',47,0,1,1), ('V2VA2','V2',48,0,1,-1),
+    ('W1WA1','W1',49,1,0,1), ('W2WA2','W2',50,1,0,-1),
+)
+specs = {irn:(x,z,sign) for _,_,irn,x,z,sign in SOURCES}
+# Exhaust this *scalar, single-arm beta-line* cohort, not all SG3 parameters.
+for archive, records, names in [('PIR',pirs.values(),{s[0] for s in SOURCES}),('CIR',cirs.values(),{s[1] for s in SOURCES})]:
+    actual = {r.irrep_label for r in records if not r.special and r.irtype==3
+              and r.dimension==(2 if archive=='PIR' else 1) and len(r.k_arms)==1
+              and r.k_arms[0].parameters==(None,(F(0),F(1),F(0)),None)}
+    assert actual==names
+for pname,cname,irn,x,z,sign in SOURCES:
+    assert (pirs[pname].irnumber,cirs[cname].irnumber)==(irn,irn)
+    assert pirs[pname].k_arms==cirs[cname].k_arms
+    assert pname[len(cname):] not in cirs
+selected = [pirs[s[0]] for s in SOURCES]+[cirs[s[1]] for s in SOURCES]
+selected += [r for r in [*pirs.values(),*cirs.values()] if r.special]
 pir_lines, cir_lines = g._read_pir_lines(), g._read_cir_lines()
 matrices = {(r.archive.value,r.irnumber):exact_record_matrices(r,pir_lines if r.archive.value=='PIR' else cir_lines) for r in selected}
 ops = pirs['LD1LE1'].operations
@@ -87,11 +104,13 @@ assert all(o.translation==(F(0),)*3 for o in ops)
 for r in selected:
     assert r.operations==ops and len(r.k_arms)==r.kcount==r.pmkcount==1
     expected = I2 if r.dimension==2 else ((ONE,),)
-    assert matrices[r.archive.value,r.irnumber]==(expected,expected)
+    sign = specs[r.irnumber][2] if not r.special else (-1 if r.irrep_label.endswith("2") else 1)
+    assert matrices[r.archive.value,r.irnumber]==(expected,tuple(tuple(sign*v for v in row) for row in expected))
     if not r.special:
         assert r.centering.value == 'P'
         assert r.dimension == (2 if r.archive.value == 'PIR' else 1)
-        assert r.k_arms[0].constant == ((F(0),)*3 if r.irnumber == 29 else (F(1,2),F(0),F(1,2)))
+        x,z,_ = specs[r.irnumber]
+        assert r.k_arms[0].constant == (F(x,2),F(0),F(z,2))
         assert r.k_arms[0].parameters == (None,(F(0),F(1),F(0)),None)
         assert r.irtype==3 and rank(r.k_arms[0].parameters)==1
         assert all(t.vector==(F(0),)*3 for t in r.irtranslations)
@@ -118,7 +137,7 @@ s = C(R(b=F(1,2)))
 U=((s,-I*s),(s,I*s))
 assert mm(U,adj(U))==I2
 samples=[]
-for pname,cname in [('LD1LE1','LD1'),('U1UA1','U1')]:
+for pname,cname,irnumber,xbit,zbit,point_sign in SOURCES:
     p,c=pirs[pname],cirs[cname]
     for b in parameters:
         pk=evaluate_k(p,b)
@@ -140,8 +159,11 @@ for pname,cname in [('LD1LE1','LD1'),('U1UA1','U1')]:
             assert rep('CIR',c.irnumber,-b,rot,t)[0][0]==z.conjugate()
             counts['negative_parameter_conjugacy']+=1
             if (2*b).denominator==1:
-                endpoint='GM1' if pname=='LD1LE1' and b.denominator==1 else 'Z1' if pname=='LD1LE1' else 'A1' if b.denominator==1 else 'E1'
-                e=cirs[endpoint]
+                endpoints=[e for e in cirs.values() if e.special
+                           and e.k_arms[0].constant==tuple(x%1 for x in pk)
+                           and matrices['CIR',e.irnumber][1]==((point_sign*ONE,),)]
+                assert len(endpoints)==1
+                e=endpoints[0]
                 w=rep('CIR',e.irnumber,F(0),rot,t)[0][0]
                 assert z==w and P==((w,ZERO),(ZERO,w))
                 counts['endpoint_duplicate_real_irrep_matches']+=1
@@ -154,7 +176,7 @@ for pname,cname in [('LD1LE1','LD1'),('U1UA1','U1')]:
             assert za.conjugate()*zd.conjugate()==zad.conjugate()
             counts['exact_cir_or_conjugate_group_products']+=2
         norm_p,norm_c=ZERO,ZERO
-        finite_ops=tuple((o.rotation,(F(x),F(y),F(0))) for o,x,y in product(ops,range(1 if pname=='LD1LE1' else 2),range(b.denominator)))
+        finite_ops=tuple((o.rotation,(F(x),F(y),F(z))) for o,x,y,z in product(ops,range(1+xbit),range(b.denominator),range(1+zbit)))
         for rot,t in finite_ops:
             chi=tr(rep('PIR',p.irnumber,b,rot,t)); z=rep('CIR',c.irnumber,b,rot,t)[0][0]
             norm_p+=chi*chi.conjugate(); norm_c+=z*z.conjugate()
@@ -179,11 +201,16 @@ for pname,cname in [('LD1LE1','LD1'),('U1UA1','U1')]:
         Q=((ONE,ZERO),(ZERO,-ONE))
         assert mm(Q,mm(rep('PIR',p.irnumber,b,ops[0].rotation,(F(0),F(1),F(0))),Q))==rep('PIR',p.irnumber,-b,ops[0].rotation,(F(0),F(1),F(0)))
         samples.append({'pir':p.irnumber,'cir':c.irnumber,'b':str(b),'physical_points':len(physical),'parent_orbit_points':len(modimages),'little_order':little,'complex_character_norm_pir':expected_norm,'complex_character_norm_cir':1,'Ty_trace':str(realtrace)})
-# #45's nonzero k0 cannot be hidden in a zero-offset direction.
-for b in parameters:
-    for t in ((F(1),F(0),F(0)),(F(0),F(0),F(1))):
-        assert rep('CIR',45,b,ops[0].rotation,t)[0][0]==-ONE
-        assert rep('CIR',29,b,ops[0].rotation,t)[0][0]==ONE
-        counts['offset_translation_sign_distinctions']+=1
-report={'scope':'SG3 PIR29 source and PIR45 offset refusal control','source_census':[len(db.pir_records),len(db.cir_records)],'sg3_cir_labels':[[r.irnumber,r.irrep_label] for r in cirs.values()], 'selected_records':[{'archive':r.archive.value,'id':r.irnumber,'label':r.irrep_label,'dim':r.dimension,'irtype':r.irtype,'kcount':r.kcount,'pmkcount':r.pmkcount,'arms':len(r.k_arms),'constant':list(map(str,r.k_arms[0].constant)),'parameters':[[str(v) for v in x] if x is not None else None for x in r.k_arms[0].parameters],'irtranslations':[list(map(str,t.vector)) if t else None for t in r.irtranslations]} for r in selected], 'sample_parameters':list(map(str,parameters)),'translation_count':len(translations),'operation_count_per_model':len(operations),'counts':dict(counts),'samples':samples,'input_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in ('scripts/iso_irrep_exact.py','scripts/audit_irrep_archives.py','scripts/generate_irrep_data.py','scripts/spinor_exact.py','isotropy_subgroup/PIR_data.zip','isotropy_subgroup/CIR_data.zip')},'limitations':'Native SG3 sources only; finite exact witnesses, not production subduction or full battery. Existing Complex24 used only as exact arithmetic, not spinor evidence.'}
+# Distinguish the actual two independent offset bits AND the C2 point sign.
+for _,_,irn,x,z,sign in SOURCES:
+    for b in parameters:
+        for t,bit in [((F(1),F(0),F(0)),x),((F(0),F(0),F(1)),z)]:
+            assert rep('CIR',irn,b,ops[0].rotation,t)[0][0]==(1-2*bit)*ONE
+            counts['offset_axis_sign_checks']+=1
+        assert rep('CIR',irn,b,ops[1].rotation,(F(0),)*3)[0][0]==sign*ONE
+        counts['point_sign_checks']+=1
+        if sign==-1:
+            assert rep('CIR',irn,b,ops[1].rotation,(F(0),)*3)!=rep('CIR',irn-1,b,ops[1].rotation,(F(0),)*3)
+            counts['wrong_positive_point_source_detected']+=1
+report={'scope':'all eight SG3 scalar beta physical conjugate lines; not general affine or all continuous SG3 sources','source_specs':[{'pir':p,'cir':c,'id':i,'offset_bits':[x,z],'C2_sign':s} for p,c,i,x,z,s in SOURCES], 'source_census':[len(db.pir_records),len(db.cir_records)],'sg3_cir_labels':[[r.irnumber,r.irrep_label] for r in cirs.values()], 'selected_records':[{'archive':r.archive.value,'id':r.irnumber,'label':r.irrep_label,'dim':r.dimension,'irtype':r.irtype,'kcount':r.kcount,'pmkcount':r.pmkcount,'arms':len(r.k_arms),'constant':list(map(str,r.k_arms[0].constant)),'parameters':[[str(v) for v in x] if x is not None else None for x in r.k_arms[0].parameters],'irtranslations':[list(map(str,t.vector)) if t else None for t in r.irtranslations]} for r in selected], 'sample_parameters':list(map(str,parameters)),'translation_count':len(translations),'operation_count_per_model':len(operations),'counts':dict(counts),'samples':samples,'input_sha256':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in ('scripts/iso_irrep_exact.py','scripts/audit_irrep_archives.py','scripts/generate_irrep_data.py','scripts/spinor_exact.py','isotropy_subgroup/PIR_data.zip','isotropy_subgroup/CIR_data.zip')},'limitations':'Native SG3 sources only; finite exact witnesses, not production subduction or full battery. Existing Complex24 used only as exact arithmetic, not spinor evidence.'}
 print(json.dumps(report,indent=2))
