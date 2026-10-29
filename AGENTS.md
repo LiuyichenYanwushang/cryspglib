@@ -22,6 +22,60 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 显式非零偏置物理线 U1UA1（P4 / R59，2026-10-29；基线24b349a）
+
+主agent亲自接入[SG3 PIR45 U1UA1](<src/irrep/subduction_physical_line.rs>)，k=(1/2,b,1/2)。
+实际只有CIR45 U1，没有UA1行；两分量保留Seed45/Conjugate45。完整k₀+bv直接送入原有
+LineArmSource.wave_vector，随后整字符共轭、共同折叠/求解/重建；未另写相位核或分导引擎。
+两来源共享真实E/C₂y点值I₂/1、零Seitz/irtranslation；U的C₂y k−k=(−1,0,−1)为倒格矢，
+所以只有一个空间种子臂，不能按未模倒格的affine像人为翻倍。U字符为(−1)^(t_x+t_z) exp(2πib t_y)。
+
+**明确的访问器迁移**：seed_table()现在返回Option，LD1为Some、U1为None；外部旧调用必须处理None。
+LittleCharacterTable没有offset，不能公开一个不完整U1表供旧零偏置接口误用。新的seed_label/offset/direction
+分别给真实CIR与affine元数据，私有系数表不逃逸。源Debug新增offset，不声称完整旧Debug串不变。
+既有物理入口签名、旧73W类型/数据、单CIR与高层路由不变；完整[契约](<docs/physical-line-subduction.md>)说明边界。
+
+2k₀在母群倒格且所有母群平移为整数，因此offset只从两种比较条件消失，不从实际字符消失。
+仍以2bg/2bh整性求精确碰撞/完整字符等价；16上下文共36周期点代表/36区间，含右端点为52次点出现。
+不是一般affine分区、标签插值或gauge输运。U的具名目标不能复制LD：6个奇数横向原点情形
+27/29/31/33/35/37改变C₂分支。U在记录38依次2A1/2E1/2A1/2E1/2A1；记录39依次
+2A1#58、E1#66+E2#67、2A2#59、同一对、2A1#58，真实owner为E1E2而非Z1Z2。
+
+新增[3项公开回归](<tests/physical_line_subduction.rs>)，共11/0：身份/None getter；160点/3,100原始矩阵
+及逾100漏offset反例；全部52点的真实CIR与36开区间各3样本，共160调用/3,110矩阵；另6,224精确对照、
+MIN/MAX与2⁻¹¹⁰邻域。原8测试保留。独立native oracle用横向整数奇偶，不读生产offset/table。
+[正式U采样](<target/logs/r59-accepted/affine-audit.json>)4/8各11,520调用/223,200原始矩阵，整表逐字一致，
+SHA3190fb3aad4180713f91f321c05e46656475e9895b236aacd9d11facf9f4e66a；144边界样本、10,800行pieces与LD不同，
+8破坏控制拒绝。[旧LD采样](<target/logs/r59-accepted/physical-audit.json>)完整16字段逐字等于R58，
+仍SHAaa8a84a96a5140f6a49baceadebe4af2a86607e23ed18636a7e40af2009cad57。采样不冒称穷尽无限参数。
+
+[前置API/数学审计](<target/r59-contract-report.md>)穷尽46条具名目标命中方程，核对30原始CIR/398操作、
+1,744精确参数上下文；没有新增切点。其R58库仅提供几何，不当作R59执行证据。
+[最终独立实现复核](<target/r59-final-review.md>)使用固定新库SHA8b42f788fb3576967c974cb73fa899c7c93315af4393a4b07a71104851d6f0d7，
+有界PASS：2,740精确查询、480数值调用、10,144原始2×2矩阵、435真实CIR/owner操作、155奇横向见证、
+327拒绝控制；独立整数1/48前向映射覆盖6非零原点。旧73W、16单分区+128单CIR结果及16物理LD分区+128结果
+完整Debug A/B相同，**仅去掉且核对一次新增零offset字段**，Option调用显式适配；输出SHA
+28e615056fbc3f8ff4b34ce183fda66fce2f422d4ad19667c1e0abc965f8357c。不是全库保证或代跑全电池。
+
+冻结275输入、2父清单、13driver、6产物、35参考。[完整电池](<target/logs/r59-accepted/battery-audit.json>)
+**1,049/0**（1,046+3），80壳、84/84池作业、16/16腿exit0。debug公开11/模块2、doc2、严格debug/release
+Clippy、Python/native源、exact-rank4、fmt/diff通过；官方单斜仍13帧/262行/105非零原点/0差异。
+旧二维43,492/compound7,556/三维38,380全部字段4/8逐字等于R58；标量Γ151,068仍等于R45。
+[Γ联合](<target/logs/r59-accepted/gamma-domain-audit.json>)仍1,313源/16,721记录/240,496双η调用；普通366,260及
+W73/1,006上下文/5,756行和三TSV计数/SHA保持。全部后台任务和两位独立审计已收齐，无运行中工作。
+
+所有冻结项验收后逐项通过。随后按复核建议，仅在契约的CIR70/71例子前明确写LD1LE1，保留
+[原契约字节](<target/r59-reviewed-contract.md>)与[精确单处替换收尾说明](<target/r59-review-closure.md>)，
+没有改实现/测试/二进制；原review清单保留，另有映射到原文的preserved清单。加三账本后，271其它输入另验。
+初稿两个Rat借用拼写编译错误、formatter导致FS_STALE_VERSION均已读取/修正；正式运行前把审计regex
+约束为独立ml字段，避免匹配row_ml，保留修正前driver清单再冻结。父向子UUID发消息失败未冒称送达；
+自动报告正常收齐。不把工具/编译问题算数学红灯，没有放宽门禁，不作并发墙钟性能结论。
+
+原5,444未注册连续族已有**2个**独立显式物理入口及各自精确分区，另5,442仍待接，不混入旧W73。
+下一步先按原始档案清点同类SG3标量线能否成组复用现有证书，再推进其它线/面/体；磁非Γ仍先SG1 Z1。
+一般复源、spinor、setting/OP、别名和交付继续按[计划](<docs/completion-plan.md>)推进；整体项目未完成。
+目标active/armed、revision12/round26，历史R50暂停不适用。未删除其它项目、push或部署。
+
 ### 物理共轭线的精确参数分区（P4 / R58，2026-10-29；基线ab393e7）
 
 主agent亲自实现并完成冻结验收。[新分区入口](<src/irrep/subduction_physical_line.rs>)

@@ -1,8 +1,9 @@
 //! Explicit physical line sources, separate from the original 73 W tables.
 //!
-//! The initial domain is SG3 PIR#29 `LD1LE1`, k=(0,b,0). The pinned archive
-//! stores ONE scalar CIR#29 `LD1`, not an independent `LE1` row. The physical
-//! carrier is that CIR at +k and its derived conjugate at -k. Both component
+//! The certified domain is SG3 PIR#29 `LD1LE1`, k=(0,b,0), and PIR#45
+//! `U1UA1`, k=(1/2,b,1/2). Each has ONE stored scalar CIR (#29 LD1 or #45 U1),
+//! not an independent LE1 or UA1 row. The physical carrier is that CIR at +k
+//! and its derived conjugate at -k, including the entire offset. Both component
 //! arms enter one common folding, block solve and full character reconstruction.
 //! Assigning dimension two to the +k table would instead describe two copies of
 //! the same CIR and gives wrong translation/screw characters.
@@ -13,9 +14,10 @@
 //! including its reducible specializations, not a new endpoint irrep label.
 //!
 //! This entry restricts to an explicitly supplied, validated fixed isotropy
-//! context. It does not claim that LD1LE1 owns that context. There is no automatic
-//! high-level routing, W-row insertion, offset-line support or parameter-range
-//! completeness claim. All evaluation uses exact rational b and the existing
+//! context. It does not claim either line owns that context. There is no automatic
+//! high-level routing, W-row insertion or general affine-source support. The
+//! separate exact partition certifies geometry/character equivalence, not labels.
+//! All pointwise evaluation uses exact rational b and the existing
 //! Bloch convention; the result certifies characters, not matrix intertwiners.
 //! Native archive hashes and the independent exact source oracle are documented
 //! in [the contract](../../docs/physical-line-subduction.md).
@@ -33,7 +35,9 @@ pub struct PhysicalLineSource {
     pir_irnumber: u32,
     seed_irnumber: u32,
     dimension: u32,
+    // Point/direction storage only: this is NOT a complete offset CIR table.
     seed: &'static LittleCharacterTable,
+    offset: [(i128, i128); 3],
 }
 
 impl PhysicalLineSource {
@@ -57,9 +61,32 @@ impl PhysicalLineSource {
     pub const fn dimension(&self) -> u32 {
         self.dimension
     }
-    /// The stored complex seed table, NOT the complete physical carrier.
-    pub const fn seed_table(&self) -> &'static LittleCharacterTable {
-        self.seed
+    /// A complete ZERO-OFFSET complex seed table, not the physical carrier.
+    ///
+    /// Returns None for an affine source: LittleCharacterTable cannot express
+    /// its offset. Callers of the original reference-returning accessor must
+    /// now handle this Option; no incomplete U1 table escapes as a valid source.
+    pub const fn seed_table(&self) -> Option<&'static LittleCharacterTable> {
+        if self.offset[0].0 == 0 && self.offset[1].0 == 0 && self.offset[2].0 == 0 {
+            Some(self.seed)
+        } else {
+            None
+        }
+    }
+    /// Authoritative complex CIR seed label, including for an affine source.
+    pub const fn seed_label(&self) -> &'static str {
+        self.seed.label
+    }
+    /// Exact affine offset k0 in the archive's parent conventional frame.
+    pub fn offset(&self) -> Vec3R {
+        Vec3R::new(
+            self.offset
+                .map(|(n, d)| Rat::new(n, d).expect("certified source offset")),
+        )
+    }
+    /// Exact coefficient of b, separate from the affine offset.
+    pub fn direction(&self) -> Vec3R {
+        line_direction(self.seed).expect("certified source direction")
     }
     /// Existing provenance tags keep the same CIR number on both components.
     pub const fn components(&self) -> [SubductionComponent; 2] {
@@ -74,40 +101,64 @@ impl PhysicalLineSource {
     }
 }
 
-// Exact pinned PIR/CIR #29: irtype=3, one stored k arm, P centering,
+const SG3_SCALAR_POINT_OPERATIONS: &[LittleOperation] = &[
+    LittleOperation {
+        element: "x,y,z",
+        rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        translation: ["0", "0", "0"],
+        character: [1, 0],
+    },
+    LittleOperation {
+        element: "-x,y,-z",
+        rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]],
+        translation: ["0", "0", "0"],
+        character: [1, 0],
+    },
+];
+
+// Exact pinned PIR/CIR #29 and #45: irtype=3, one stored k arm, P centering,
 // E/C2y point matrices I2/1, zero stored Seitz translations AND irtranslations.
 // Hence the existing seed character D(R) exp(+2pi i k.t) is the native CIR.
 // The original 73 W tables and their source/context lookup are not modified.
-static SOURCES: &[PhysicalLineSource] = &[PhysicalLineSource {
-    label: "LD1LE1",
-    pir_irnumber: 29,
-    seed_irnumber: 29,
-    dimension: 2,
-    seed: &LittleCharacterTable {
-        space_group: 3,
-        label: "LD1",
-        k_label: "LD",
-        direction: ["0", "1", "0"],
-        dimension: 1,
-        operations: &[
-            LittleOperation {
-                element: "x,y,z",
-                rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-                translation: ["0", "0", "0"],
-                character: [1, 0],
-            },
-            LittleOperation {
-                element: "-x,y,-z",
-                rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]],
-                translation: ["0", "0", "0"],
-                character: [1, 0],
-            },
-        ],
+static SOURCES: &[PhysicalLineSource] = &[
+    PhysicalLineSource {
+        label: "LD1LE1",
+        pir_irnumber: 29,
+        seed_irnumber: 29,
+        dimension: 2,
+        offset: [(0, 1); 3],
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "LD1",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
     },
-}];
+    PhysicalLineSource {
+        label: "U1UA1",
+        pir_irnumber: 45,
+        seed_irnumber: 45,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (1, 2)],
+        // Native PIR/CIR #45 has the same E/C2y point values and zero stored
+        // translations/irtranslations. C2y*k-k=(-1,0,-1) is parent reciprocal;
+        // thus its generic spatial star still has ONE arm. Only the complete
+        // affine wave vector, never this private point table alone, evaluates U1.
+        seed: &LittleCharacterTable {
+            space_group: 3,
+            label: "U1",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
+    },
+];
 
 /// Look up an explicitly certified physical line by its exact PIR label.
-/// Currently only SG3 LD1LE1 is registered; U1UA1 needs an offset contract.
+/// SG3 LD1LE1 and U1UA1 have distinct native CIR identities and affine offsets.
 pub fn physical_line_source(parent_sg: u8, label: &str) -> Option<&'static PhysicalLineSource> {
     SOURCES
         .iter()
@@ -285,7 +336,7 @@ pub fn subduce_physical_line_with_embedding<'a>(
     validate_line_context(subgroup, embedding, source.seed)?;
     let direction = line_direction(source.seed)?;
     let arms = line_arms(subgroup, embedding, source.seed, &direction)?;
-    let k = line_wave_vector(&direction, &parameter)?;
+    let k = line_wave_vector(&direction, &parameter)?.checked_add(&source.offset())?;
     let negative_k = k.checked_neg()?;
     let paired = RealifiedLineSource {
         seed: LineArmSource {
@@ -467,9 +518,10 @@ impl<'a> PhysicalLinePartition<'a> {
     }
 }
 
-/// Partition the SG3 LD1LE1 physical pair exactly over a parent period.
+/// Partition either certified SG3 physical pair exactly over a parent period.
 ///
-/// For this registered source D±({R|t})=exp(±2πib t_y), and every subgroup
+/// Here D±({R|t})=exp(±2πi(k0.t+b t_y)). Since 2k0.t is integral, the
+/// offset cancels from the equality conditions (not the characters). Every subgroup
 /// rotation fixes y. Thus each restricted component is already a scalar irrep.
 /// Child momenta coincide iff 2b e_y is in L_H*, computed with the existing exact
 /// lattice-coordinate step solver. The full characters coincide only if, in
@@ -506,13 +558,20 @@ pub fn partition_physical_line_with_embedding<'a>(
 ) -> Result<PhysicalLinePartition<'a>, FullStarError> {
     use super::super::line_domain as domain;
     validate_line_context(subgroup, embedding, source.seed)?;
-    // The opaque registry currently has exactly this zero-offset, trivial-point
-    // scalar seed. Its native proof supplies the formula above, not a guessed
-    // rule for arbitrary LittleCharacterTable input.
+    // Both certified P2 sources have trivial point matrices and 2*k0 in the
+    // parent reciprocal lattice. Integral parent translations then cancel k0
+    // from BOTH the momentum-collision and full-character-equality equations.
+    // This is not a general affine congruence solver.
     let direction = line_direction(source.seed)?;
     let difference = direction.checked_add(&direction)?;
     let parent_reciprocal = embedding.parent_lattice().reciprocal()?;
     let child_reciprocal_in_parent = embedding.subgroup_lattice().reciprocal()?;
+    if !parent_reciprocal.contains(&source.offset().checked_add(&source.offset())?)? {
+        return Err(SubductionError::DomainCensusInconsistent {
+            reason: "physical P2 offset must be half reciprocal",
+        }
+        .into());
+    }
     domain::require_reciprocal_direction(
         &parent_reciprocal,
         &direction,
@@ -539,7 +598,7 @@ pub fn partition_physical_line_with_embedding<'a>(
         // y is an additive homomorphism on this P2 subgroup. Translations and
         // one representative of each point class therefore test the entire group.
         let y = operation.translation.get(1);
-        if y.denominator() != 1 {
+        if !operation.translation.is_integral() {
             return Err(SubductionError::DomainCensusInconsistent {
                 reason: "physical P2 character must have parameter period one",
             }

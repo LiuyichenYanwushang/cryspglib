@@ -57,13 +57,40 @@ fn child_operation(e: &SubgroupEmbedding, p: &ExactSeitz) -> ExactSeitz {
     ExactSeitz::new(h.rotation(), Vec3R::new(t))
 }
 fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
+    verify_native(report, 29)
+}
+// Independent native #45 formula: the transverse half-offset supplies the
+// sign (-1)^(tx+tz). Do not read the implementation's offset or character table.
+fn native_phase(irnumber: u32, b: Rat, op: &ExactSeitz) -> C {
+    let z = phase(b, op);
+    match irnumber {
+        29 => z,
+        45 => {
+            let t = op.translation();
+            if t.get(0).numerator().rem_euclid(2) != t.get(2).numerator().rem_euclid(2) {
+                -z
+            } else {
+                z
+            }
+        }
+        _ => panic!("uncertified native source"),
+    }
+}
+fn verify_native(report: &PhysicalLineSubduction<'_>, irnumber: u32) -> usize {
+    assert_eq!(report.source().pir_irnumber(), irnumber);
+    assert_eq!(report.source().seed_irnumber(), irnumber);
+    let offset = match irnumber {
+        29 => r(0, 1),
+        45 => r(1, 2),
+        _ => panic!("uncertified native source"),
+    };
     assert_eq!(report.source().dimension(), 2);
     assert_eq!(report.covered_dimension(), 2);
     assert_eq!(
         report.source().components(),
         [
-            SubductionComponent::RealificationSeed { irnumber: 29 },
-            SubductionComponent::RealificationConjugate { irnumber: 29 }
+            SubductionComponent::RealificationSeed { irnumber },
+            SubductionComponent::RealificationConjugate { irnumber }
         ]
     );
     let e = report.embedding();
@@ -71,8 +98,12 @@ fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
     assert_eq!(
         report.wave_vectors(),
         &[
-            Vec3R::new([r(0, 1), b, r(0, 1)]),
-            Vec3R::new([r(0, 1), b.checked_neg().unwrap(), r(0, 1)])
+            Vec3R::new([offset, b, offset]),
+            Vec3R::new([
+                offset.checked_neg().unwrap(),
+                b.checked_neg().unwrap(),
+                offset.checked_neg().unwrap()
+            ])
         ]
     );
     assert_eq!(
@@ -87,7 +118,7 @@ fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
         .zip(source)
         .zip(reconstructed)
     {
-        let z = phase(b, op);
+        let z = native_phase(irnumber, b, op);
         near(*a, z + z.conj());
         near(*v, *a);
     }
@@ -147,7 +178,7 @@ fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
             .position(|(bi, ti, m)| {
                 *m > 0
                     && operations.iter().all(|(p, h)| {
-                        let z = phase(b, p);
+                        let z = native_phase(irnumber, b, p);
                         let z = if conjugate { z.conj() } else { z };
                         (report.blocks()[*bi].target_character(*ti, h).unwrap() - z).norm() < 1e-9
                     })
@@ -163,7 +194,7 @@ fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
         [C::new(s, 0.0), C::new(0.0, -s)],
     ];
     for (p, h) in &operations {
-        let z = phase(b, p);
+        let z = native_phase(irnumber, b, p);
         let native = [[z.re, z.im], [-z.im, z.re]];
         let mut matrix = [[C::new(0.0, 0.0); 2]; 2];
         for (column, (bi, ti)) in u.iter().zip(&assigned) {
@@ -181,7 +212,10 @@ fn verify(report: &PhysicalLineSubduction<'_>) -> usize {
         }
         // Check the native group law on a nontrivial translated partner too.
         let q = &operations[(operations.len() / 2 + 1) % operations.len()].0;
-        near(phase(b, p) * phase(b, q), phase(b, &p.compose(q).unwrap()));
+        near(
+            native_phase(irnumber, b, p) * native_phase(irnumber, b, q),
+            native_phase(irnumber, b, &p.compose(q).unwrap()),
+        );
     }
     operations.len()
 }
@@ -199,7 +233,7 @@ fn physical_identity_is_one_native_seed_and_does_not_change_the_w_registry() {
         ),
         (3, "LD1LE1", 29, 29, 2)
     );
-    let t = s.seed_table();
+    let t = s.seed_table().unwrap();
     assert_eq!(
         (t.space_group, t.label, t.k_label, t.dimension),
         (3, "LD1", "LD", 1)
@@ -212,7 +246,7 @@ fn physical_identity_is_one_native_seed_and_does_not_change_the_w_registry() {
         assert_eq!(op.translation, ["0"; 3]);
         assert_eq!(op.character, [1, 0]);
     }
-    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "U1UA1"), (4, "LD1LE1")] {
+    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "UA1"), (4, "LD1LE1")] {
         assert!(physical_line_source(sg, label).is_none());
     }
     assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
@@ -427,7 +461,7 @@ fn exact_physical_partition_covers_all_sixteen_contexts_without_sampling_roots()
         let old = cryspglib::irrep::subduction::star::line_domain::full_star_partition(
             c,
             &e,
-            source.seed_table(),
+            source.seed_table().unwrap(),
         )
         .unwrap();
         assert_eq!(old.arms.len(), 1);
@@ -571,4 +605,206 @@ fn physical_partition_preserves_context_and_parent_refusals() {
     let mut stale = a;
     stale.ordinal = usize::MAX;
     assert!(partition_physical_line_with_embedding(&stale, &e, source).is_err());
+}
+#[test]
+fn affine_source_has_real_identity_and_no_incomplete_zero_offset_table() {
+    let source = physical_line_source(3, "U1UA1").unwrap();
+    assert_eq!(
+        (
+            source.parent_sg(),
+            source.label(),
+            source.pir_irnumber(),
+            source.seed_irnumber(),
+            source.seed_label(),
+            source.dimension()
+        ),
+        (3, "U1UA1", 45, 45, "U1", 2)
+    );
+    assert!(source.seed_table().is_none());
+    assert_eq!(source.offset(), Vec3R::new([r(1, 2), r(0, 1), r(1, 2)]));
+    assert_eq!(source.direction(), Vec3R::new([r(0, 1), r(1, 1), r(0, 1)]));
+    let zero = physical_line_source(3, "LD1LE1").unwrap();
+    assert_eq!(zero.offset(), Vec3R::new([r(0, 1); 3]));
+    assert_eq!(zero.seed_label(), "LD1");
+    assert!(zero.seed_table().is_some());
+    assert!(physical_line_source(3, "U1").is_none());
+    assert!(physical_line_source(3, "UA1").is_none());
+    assert!(physical_line_source(4, "U1UA1").is_none());
+    assert!(query::irreps_of(3).iter().all(|i| i.ml != "U1UA1"));
+    assert!(line_monodromy::line_sources(3).is_empty());
+    assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
+}
+
+#[test]
+fn affine_pair_reconstructs_native_matrices_in_every_fixed_context() {
+    let source = physical_line_source(3, "U1UA1").unwrap();
+    let mut calls = 0;
+    let mut matrices = 0;
+    let mut offset_sign_witnesses = 0;
+    for subgroup in fixed_contexts() {
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+        let partition =
+            partition_physical_line_with_embedding(&subgroup, &embedding, source).unwrap();
+        for b in [
+            r(0, 1),
+            r(1, 4),
+            r(1, 2),
+            r(3, 4),
+            r(1, 1),
+            r(1, 3),
+            r(-1, 4),
+            r(7, 6),
+            r(4_000_000_001, 4),
+            r(-2_999_999_999, 3),
+        ] {
+            let report =
+                subduce_physical_line_with_embedding(&subgroup, &embedding, source, b).unwrap();
+            matrices += verify_native(&report, 45);
+            calls += 1;
+            for (op, ch) in report
+                .verification_operations()
+                .iter()
+                .zip(report.reconstruction().0)
+            {
+                let missing_offset = phase(b, op);
+                if (*ch - missing_offset - missing_offset.conj()).norm() > 1e-5 {
+                    offset_sign_witnesses += 1;
+                }
+            }
+            match partition.kind_at(&b) {
+                PhysicalLineKind::DistinctMomenta => assert_eq!(report.blocks().len(), 2),
+                PhysicalLineKind::DistinctCharactersAtOneMomentum => {
+                    assert_eq!(report.blocks().len(), 1);
+                    assert_eq!(report.blocks()[0].targets().len(), 2);
+                    assert!(
+                        report.blocks()[0]
+                            .targets()
+                            .iter()
+                            .all(|t| t.multiplicity == 1)
+                    );
+                }
+                PhysicalLineKind::RepeatedCharacter => {
+                    assert_eq!(report.blocks().len(), 1);
+                    assert_eq!(report.blocks()[0].targets().len(), 1);
+                    assert_eq!(report.blocks()[0].targets()[0].multiplicity, 2);
+                }
+            }
+        }
+    }
+    assert_eq!((calls, matrices), (160, 3100));
+    assert!(offset_sign_witnesses > 100);
+}
+#[test]
+fn affine_partition_cells_have_native_identities_not_the_zero_offset_labels() {
+    let source = physical_line_source(3, "U1UA1").unwrap();
+    let zero = physical_line_source(3, "LD1LE1").unwrap();
+    // Independently decoded native CIR data, not inferred from this solver.
+    let endpoints = [
+        [("A1", 31), ("E1", 39)],
+        [("U1", 4), ("R1", 6)],
+        [("GM1", 27), ("Z1", 43)],
+        [("GM2", 28), ("Z2", 44)],
+        [("Y1", 41), ("C1", 35)],
+        [("Y2", 42), ("C2", 36)],
+        [("M1", 91), ("A1", 87)],
+        [("M2", 92), ("A2", 88)],
+        [("M1", 91), ("A1", 87)],
+        [("M2", 92), ("A2", 88)],
+        [("Y1", 85), ("GM1", 81)],
+        [("Y2", 86), ("GM2", 82)],
+        [("B1", 33), ("D1", 37)],
+        [("B2", 34), ("D2", 38)],
+    ];
+    let mut points = 0;
+    let mut intervals = 0;
+    let mut calls = 0;
+    let mut matrices = 0;
+    for sg in fixed_contexts() {
+        let e = SubgroupEmbedding::from_isotropy_subgroup(&sg).unwrap();
+        let part = partition_physical_line_with_embedding(&sg, &e, source).unwrap();
+        let old = partition_physical_line_with_embedding(&sg, &e, zero).unwrap();
+        assert_eq!(part.boundaries(), old.boundaries());
+        assert_eq!(
+            part.momentum_collision_step(),
+            old.momentum_collision_step()
+        );
+        assert_eq!(
+            part.character_equivalence_step(),
+            old.character_equivalence_step()
+        );
+        for b in part
+            .boundaries()
+            .iter()
+            .map(|p| p.parameter)
+            .chain([r(1, 1)])
+        {
+            let report = subduce_physical_line_with_embedding(&sg, &e, source, b).unwrap();
+            matrices += verify_native(&report, 45);
+            calls += 1;
+            points += 1;
+            let mut got: Vec<_> = report
+                .blocks()
+                .iter()
+                .flat_map(|block| block.targets())
+                .map(|t| (t.ml.unwrap(), t.irnumber.unwrap(), t.multiplicity))
+                .collect();
+            got.sort_unstable();
+            let expected = match sg.ordinal {
+                24..=37 => {
+                    let (label, id) = endpoints[sg.ordinal - 24][usize::from(b == r(1, 2))];
+                    vec![(label, id, 2)]
+                }
+                38 => {
+                    if b == r(1, 4) || b == r(3, 4) {
+                        vec![("E1", 39, 2)]
+                    } else {
+                        vec![("A1", 31, 2)]
+                    }
+                }
+                39 => {
+                    if b == r(1, 4) || b == r(3, 4) {
+                        vec![("E1", 66, 1), ("E2", 67, 1)]
+                    } else if b == r(1, 2) {
+                        vec![("A2", 59, 2)]
+                    } else {
+                        vec![("A1", 58, 2)]
+                    }
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(got, expected, "record{} b={b:?}", sg.ordinal);
+        }
+        for (left, right) in part.intervals() {
+            intervals += 1;
+            for numerator in [1, 2, 3] {
+                let b = left
+                    .checked_add(
+                        right
+                            .checked_sub(left)
+                            .unwrap()
+                            .checked_mul(r(numerator, 4))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                let report = subduce_physical_line_with_embedding(&sg, &e, source, b).unwrap();
+                matrices += verify_native(&report, 45);
+                calls += 1;
+                assert_eq!(report.blocks().len(), 2);
+                assert_eq!(part.kind_at(&b), PhysicalLineKind::DistinctMomenta);
+            }
+        }
+        for n in -194..=194 {
+            let b = r(n, 97);
+            assert_eq!(part.kind_at(&b), old.kind_at(&b));
+        }
+        for b in [
+            r(i128::MIN, 1),
+            r(i128::MAX, 1),
+            r(1, 4).checked_add(r(1, 1i128 << 110)).unwrap(),
+            r(1, 4).checked_sub(r(1, 1i128 << 110)).unwrap(),
+        ] {
+            assert_eq!(part.kind_at(&b), old.kind_at(&b));
+        }
+    }
+    assert_eq!((points, intervals, calls, matrices), (52, 36, 160, 3110));
 }
