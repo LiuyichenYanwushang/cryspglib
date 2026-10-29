@@ -69,6 +69,10 @@ use super::{
     arm_wave_vector, catalogue, fold_arms,
 };
 
+/// Explicit physical realifications of independently certified continuous line sources.
+#[path = "subduction_physical_line.rs"]
+pub mod physical_line;
+
 /// The identity rotation, as stored in every Hall operation table.
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
@@ -322,11 +326,12 @@ pub enum FullStarError {
          {found} != {expected}"
     )]
     ReconstructionMismatch {
-        /// Position in the embedding's representative list.
+        /// Position in the verification list: embedding representatives for the
+        /// original APIs, translated verification operations for physical lines.
         index: usize,
         /// Character rebuilt from the reported child irreps.
         found: Complex64,
-        /// `ScalarStar::character` of the same representative.
+        /// Full parent source character of the same operation.
         expected: Complex64,
     },
 }
@@ -1806,6 +1811,8 @@ enum ArmCharacterSource<'a> {
     Cir(&'a ScalarStar),
     /// A parametric-k line's arms.
     Line(&'a LineArmSource<'a>),
+    /// A stored CIR line and its derived conjugate, with both arm identities.
+    RealifiedLine(&'a physical_line::RealifiedLineSource<'a>),
 }
 
 impl ArmCharacterSource<'_> {
@@ -1813,6 +1820,7 @@ impl ArmCharacterSource<'_> {
         match self {
             Self::Cir(star) => star.q_block_dimension(arm_indices),
             Self::Line(source) => source.q_block_dimension(arm_indices),
+            Self::RealifiedLine(source) => source.q_block_dimension(arm_indices),
         }
     }
 
@@ -1824,6 +1832,7 @@ impl ArmCharacterSource<'_> {
         match self {
             Self::Cir(star) => star.q_block_character(arm_indices, operation),
             Self::Line(source) => source.q_block_character(arm_indices, operation),
+            Self::RealifiedLine(source) => source.q_block_character(arm_indices, operation),
         }
     }
 
@@ -1837,6 +1846,7 @@ impl ArmCharacterSource<'_> {
     fn full_character(&self, operation: &ExactSeitz) -> Result<Complex64, FullStarError> {
         match self {
             Self::Cir(star) => Ok(star.character(operation)?),
+            Self::RealifiedLine(source) => Ok(source.full_character(operation)?),
             Self::Line(source) => {
                 let mut value = Complex64::new(0.0, 0.0);
                 for index in 0..source.arms.len() {
@@ -2683,7 +2693,18 @@ fn reconstruct(
     source: &ArmCharacterSource,
     blocks: &[FullStarBlock],
 ) -> Result<(Vec<Complex64>, Vec<Complex64>), FullStarError> {
-    let representatives = embedding.representatives();
+    reconstruct_on(embedding, source, blocks, embedding.representatives())
+}
+
+/// The same independent character reconstruction on explicit parent operations.
+/// The original entry retains its exact representative list; continuous physical
+/// sources additionally supply translated representatives to check Bloch phases.
+fn reconstruct_on(
+    embedding: &SubgroupEmbedding,
+    source: &ArmCharacterSource,
+    blocks: &[FullStarBlock],
+    representatives: &[ExactSeitz],
+) -> Result<(Vec<Complex64>, Vec<Complex64>), FullStarError> {
     let mut parent_characters = Vec::with_capacity(representatives.len());
     let mut pulled_back = Vec::with_capacity(representatives.len());
     for operation in representatives {

@@ -22,6 +22,63 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 零偏置物理共轭线的逐点分导（P4首批 / R57，2026-10-29；基线78634e6）
+
+主agent亲自实现并完成冻结验收。[新入口](<src/irrep/subduction_physical_line.rs>)只注册
+SG3 PIR#29 LD1LE1，k=(0,b,0)，接受明确有理b、固定isotropy记录及其embedding。
+物理源与定义限制几何的记录各自保留身份，不伪称该连续族拥有这条凝聚记录。
+实际只有一个存储CIR#29 LD1；第二分量是同一源的派生共轭，以既有Seed/Conjugate标记区分，
+不伪造LE1行或第二个源编号。原73条W表、查询、上下文发现、高层路由与旧结果保持不变。
+
+[精确档案核验](<scripts/verify_physical_line_sources.py>)钉住P格、dim/type/count、beta槽、
+k₀/方向、完整原始Seitz及irtranslation：两操作E/C₂y，所有平移与irtranslation为零；
+PIR点矩阵I₂，CIR点值1。参考算法先验t−τ为格矢，再用t−τ+irtranslation。
+原始实矩阵为[[cos,+sin],[-sin,cos]]，不是常用相反正弦约定；复化后为D⊕conj(D)，
+字符2cosθ而非2D。源公式对整个P2成立；有限精确门禁另外检查4,536次PIR、9,072次CIR/共轭
+乘积，252次各类复化/字符和/负参数对照、108端点矩阵、14范数模型及非格拒绝。
+错误加倍、漏irtranslation、offset符号均有控制；#45数据见证不是其生产支持。
+
+两个组件保留全部flat arm身份，进入**一次共同折叠/块求解/重建**，不拼接两个完整旧报告。
+当2b为整数，母群±k重合但保留两份；little co-group始终C₂，不称小群增强。
+端点给2GM1或2Z1。Z2记录39→SG4在b=1/4已发生子群折叠，却须保留CIR70/Z1与71/Z2各一份：
+screw特征值±i，总迹0；错误倍增单个+b表会给2i。共同[字符核](<src/irrep/subduction_star_decompose.rs>)
+只新增私有适配器并抽出显式操作列表，旧调用仍传原代表列表。新调用另验每个代表的L_H基矢
+0/1/2混合平移，保留验证列表/两侧字符；平方可区分i+(-i)与1+(-1)的一阶矩假相同。
+此核验限当前两条标量平移字符：一阶/平方确定各轴特征值对，混合项固定跨轴配对；
+不宣称任意维数的通用有限矩证书。结果是普通字符分导，不是生产矩阵intertwiner API。
+
+新增2项模块与[4项公开回归](<tests/physical_line_subduction.rs>)；后者160参数网格调用加4夹具，
+3,180次独立原始2×2重建。另[冻结采样](<target/logs/r57-accepted/physical-audit.json>)覆盖16个固定
+SG3记录、720个参数（分母≤24、负值与10⁹平移等），**4/8线程各11,520调用、223,200矩阵重建**，
+整表逐字相同SHA d659899649f1fa5513cf6b31f527bea69f88ff9ca32acb49a5f24e1a086d22fe；6审计破坏控制拒绝。
+包含SG4 screw、SG5心格及非零原点，使用生产验证立方体外的负/混合平移，逐copy匹配完整原始
+复特征线并重建实矩阵。这是有界采样，不是整个参数族的精确分区。边界见[契约](<docs/physical-line-subduction.md>)。
+
+冻结275输入、2父workspace清单、12driver、6测量/库产物与23参考。
+[完整电池](<target/logs/r57-accepted/battery-audit.json>)**1,042/0**（1,036+6）、80测试壳、84/84池作业、
+16/16腿exit0；debug模块2/0、公开4/0、严格debug/release Clippy、doc（含新示例）、Python、
+四项exact-rank、fmt/diff通过；单斜仍13帧/262记录/105非零原点/0差异。
+[旧二维](<target/logs/r57-accepted/matrix-audit.json>)43,492/7,556全部14字段、[旧三维](<target/logs/r57-accepted/target-audit.json>)
+38,380全部16字段4/8均逐字等于R56；旧七/十三项破坏控制保持。
+[标量Γ](<target/logs/r57-accepted/gamma-audit.json>)151,068仍逐字等于R45；
+[身份联合](<target/logs/r57-accepted/gamma-domain-audit.json>)仍1,313源/240,496双η调用。
+普通366,260与W73/1,006上下文/5,756行及三TSV计数/SHA全部保持。
+所有冻结项验收前后逐项不变；随后只更新账本、计划与清点状态，其余272输入另核对。
+
+[独立最终实现复核](<target/r57-final-review.md>)未发现范围内已确认缺陷；使用固定
+[2509bdfe发布库](<target/r57-reviewed-libcryspglib.rlib>)，独立整数1/48前向映射及{-5,0,4}平移，
+完成320模型、23,220原始矩阵重建、42,903目标乘法及37显式拒绝控制，含近端点和±(2⁹⁰+1)/8。
+另旧73表与有界旧入口A/B逐字相同，全部输入哈希前后保持；不冒称该复核重跑整套电池。
+初稿测试API拼写、review探针借用编译问题均已修正；多作业合并等待曾触发外层工具时限，
+没有中断后台验收，最终全部逐个收齐exit0。不把这些工具问题算数学红灯，未降低门槛。
+并发墙钟不作性能结论。未删除其它项目，没有push或部署。
+
+**下一步仍属P4**：先补此物理配对的精确参数分区（旧单CIR分区不含跨组件碰撞），再接
+#45 U1UA1的显式非零k₀；磁非Γ仍先SG1 Z1。原5,444未注册连续族中仅此1个获得独立逐点入口，
+另5,443仍待接入；不把新入口混入73W分母或已分区计数。面/体、一般复源、spinor、setting/OP、
+别名和交付继续按[计划](<docs/completion-plan.md>)推进。目标active/armed、revision12/round24；
+历史R50暂停不适用，项目整体未完成。
+
 ### 三维混合目标分导与有限Γ源域闭合（P3b / R56，2026-10-29；基线 dc536db）
 
 主agent亲自实现并完成冻结验收。[独立入口](<src/irrep/magnetic_matrix_subduction/three_dimensional_targets.rs>)
