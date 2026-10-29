@@ -358,6 +358,257 @@ pub fn subduce_physical_line_with_embedding<'a>(
     })
 }
 
+/// The exact complex-character content of the restricted physical pair.
+///
+/// Both components are scalar for the registered SG3 source. A momentum
+/// collision is not necessarily equality of their characters on the whole
+/// subgroup: the SG4 screw distinguishes them at quarter parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicalLineKind {
+    /// Two different singleton child stars, each with one scalar target.
+    DistinctMomenta,
+    /// One child momentum, with two inequivalent scalar targets of multiplicity one.
+    DistinctCharactersAtOneMomentum,
+    /// One scalar target with multiplicity two; both source copies survive.
+    RepeatedCharacter,
+}
+
+/// One exact point cell of a physical-pair partition, in the period [0,1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicalLineBoundary {
+    /// Parameter modulo one. The endpoint one is represented by zero.
+    pub parameter: Rat,
+    /// Content at this point, not the content of an adjacent open interval.
+    pub kind: PhysicalLineKind,
+    /// Whether the two momenta also coincide modulo the *parent* reciprocal lattice.
+    /// This is not a change of the parent's little co-group (always C2 here).
+    pub parent_conjugate_stars_coincide: bool,
+}
+
+/// Exact geometric and scalar-character partition of the registered physical line.
+///
+/// Every open interval between the boundaries has two different singleton child
+/// stars, one scalar target in each. The point cells retain both source copies.
+/// This is a proof from exact congruences, not an inference from sampled calls.
+/// It does not assign stored labels or continuous catalogue indices to an interval:
+/// use the pointwise subduction to obtain target identities and numerical characters.
+#[derive(Debug, Clone)]
+pub struct PhysicalLinePartition<'a> {
+    subgroup: &'a IsotropySubgroup,
+    embedding: &'a SubgroupEmbedding,
+    source: &'static PhysicalLineSource,
+    parent_collision_step: Rat,
+    momentum_collision_step: Rat,
+    character_equivalence_step: Rat,
+    boundaries: Vec<PhysicalLineBoundary>,
+}
+
+impl<'a> PhysicalLinePartition<'a> {
+    /// The fixed record defining restriction geometry, not the physical source's owner.
+    pub const fn subgroup(&self) -> &'a IsotropySubgroup {
+        self.subgroup
+    }
+    /// The validated restriction embedding.
+    pub const fn embedding(&self) -> &'a SubgroupEmbedding {
+        self.embedding
+    }
+    /// Source identity, including the seed and derived-conjugate identities.
+    pub const fn source(&self) -> &'static PhysicalLineSource {
+        self.source
+    }
+    /// Positive generator of the parameters where parent momenta coincide (1/2).
+    pub const fn parent_collision_step(&self) -> Rat {
+        self.parent_collision_step
+    }
+    /// Positive generator of child-momentum collisions. Twice this is the period
+    /// of each labelled component's translation character, not necessarily its
+    /// full subgroup character (SG4 is the counterexample).
+    pub const fn momentum_collision_step(&self) -> Rat {
+        self.momentum_collision_step
+    }
+    /// Positive generator of parameters where the two full restricted characters
+    /// agree. Twice this is their labelled full-character period. Doubled SG3
+    /// has step 1/4 (full period 1/2); SG4 has step 1/2 (full period 1), despite
+    /// the same momentum period 1/2.
+    pub const fn character_equivalence_step(&self) -> Rat {
+        self.character_equivalence_step
+    }
+    /// Point cells in [0,1), in ascending order; one is the same point cell as zero.
+    pub fn boundaries(&self) -> &[PhysicalLineBoundary] {
+        &self.boundaries
+    }
+    /// Find a point cell, reducing the input modulo the full parent period one.
+    /// This exact classification does not evaluate a potentially overflowing
+    /// unreduced Bloch vector, nor change the pointwise evaluator's arithmetic contract.
+    pub fn boundary(&self, parameter: &Rat) -> Option<&PhysicalLineBoundary> {
+        let reduced = super::super::line_domain::reduce_modulo_one(*parameter);
+        self.boundaries.iter().find(|b| b.parameter == reduced)
+    }
+    /// Exact content at any representable rational parameter, including negative
+    /// and period-translated values. No tolerance or near-boundary snapping.
+    pub fn kind_at(&self, parameter: &Rat) -> PhysicalLineKind {
+        self.boundary(parameter)
+            .map_or(PhysicalLineKind::DistinctMomenta, |b| b.kind)
+    }
+    /// Open interval endpoints in [0,1]. All interiors have DistinctMomenta content;
+    /// endpoints must be evaluated as point cells, not by an interior sample.
+    pub fn intervals(&self) -> Vec<(Rat, Rat)> {
+        self.boundaries
+            .iter()
+            .map(|b| b.parameter)
+            .zip(
+                self.boundaries
+                    .iter()
+                    .skip(1)
+                    .map(|b| b.parameter)
+                    .chain(std::iter::once(Rat::ONE)),
+            )
+            .collect()
+    }
+}
+
+/// Partition the SG3 LD1LE1 physical pair exactly over a parent period.
+///
+/// For this registered source D±({R|t})=exp(±2πib t_y), and every subgroup
+/// rotation fixes y. Thus each restricted component is already a scalar irrep.
+/// Child momenta coincide iff 2b e_y is in L_H*, computed with the existing exact
+/// lattice-coordinate step solver. The full characters coincide only if, in
+/// addition, 2b t_y is integral for every coset representative. Intersecting
+/// these exact cyclic subgroups of Q gives all point cells and multiplicities.
+/// No little-group enhancement, fake parent rotation for conjugation, sampled
+/// completeness argument, or single-CIR ParameterKind is used.
+///
+/// The original 73-source partition and all pointwise routes are unchanged.
+/// This function returns content/geometry, not a general affine-line partition,
+/// stored-label interpolation, numerical matrices or gauge/monodromy transport.
+///
+/// ```
+/// use cryspglib::irrep::{isotropy, LabelConvention};
+/// use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding};
+/// use cryspglib::irrep::subduction::star::decompose::physical_line::{
+///     physical_line_source, partition_physical_line_with_embedding, PhysicalLineKind,
+/// };
+/// let record = isotropy::isotropy_subgroups(3, "Z2", LabelConvention::Cdml)?[0];
+/// let embedding = SubgroupEmbedding::from_isotropy_subgroup(&record)?;
+/// let partition = partition_physical_line_with_embedding(
+///     &record, &embedding, physical_line_source(3, "LD1LE1").unwrap(),
+/// )?;
+/// assert_eq!(partition.boundaries().len(), 4);
+/// assert_eq!(partition.kind_at(&Rat::new(1, 4)?),
+///            PhysicalLineKind::DistinctCharactersAtOneMomentum);
+/// assert_eq!(partition.kind_at(&Rat::new(1, 2)?), PhysicalLineKind::RepeatedCharacter);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn partition_physical_line_with_embedding<'a>(
+    subgroup: &'a IsotropySubgroup,
+    embedding: &'a SubgroupEmbedding,
+    source: &'static PhysicalLineSource,
+) -> Result<PhysicalLinePartition<'a>, FullStarError> {
+    use super::super::line_domain as domain;
+    validate_line_context(subgroup, embedding, source.seed)?;
+    // The opaque registry currently has exactly this zero-offset, trivial-point
+    // scalar seed. Its native proof supplies the formula above, not a guessed
+    // rule for arbitrary LittleCharacterTable input.
+    let direction = line_direction(source.seed)?;
+    let difference = direction.checked_add(&direction)?;
+    let parent_reciprocal = embedding.parent_lattice().reciprocal()?;
+    let child_reciprocal_in_parent = embedding.subgroup_lattice().reciprocal()?;
+    domain::require_reciprocal_direction(
+        &parent_reciprocal,
+        &direction,
+        source.parent_sg(),
+        source.label(),
+    )?;
+    domain::require_reciprocal_direction(
+        &child_reciprocal_in_parent,
+        &direction,
+        embedding.subgroup_sg(),
+        source.label(),
+    )?;
+    let missing_step = || SubductionError::DomainCensusInconsistent {
+        reason: "physical line direction must be nonzero",
+    };
+    let parent_collision_step =
+        domain::minimal_parameter_step_via_coordinates(&parent_reciprocal, &difference)?
+            .ok_or_else(missing_step)?;
+    let momentum_collision_step =
+        domain::minimal_parameter_step_via_coordinates(&child_reciprocal_in_parent, &difference)?
+            .ok_or_else(missing_step)?;
+    let mut character_equivalence_step = momentum_collision_step;
+    for operation in embedding.representatives() {
+        // y is an additive homomorphism on this P2 subgroup. Translations and
+        // one representative of each point class therefore test the entire group.
+        let y = operation.translation.get(1);
+        if y.denominator() != 1 {
+            return Err(SubductionError::DomainCensusInconsistent {
+                reason: "physical P2 character must have parameter period one",
+            }
+            .into());
+        }
+        let constraints = Vec3R::new([
+            Rat::ONE.checked_div(character_equivalence_step)?,
+            y.checked_add(y)?,
+            Rat::ZERO,
+        ]);
+        character_equivalence_step =
+            domain::minimal_parameter_step_via_coordinates(&Lattice::integer(), &constraints)?
+                .ok_or_else(missing_step)?;
+    }
+    // Period one makes each step a reciprocal integer; its residues are ordered.
+    // Parent collisions imply full-character equality, which implies child collision.
+    if [
+        parent_collision_step,
+        momentum_collision_step,
+        character_equivalence_step,
+    ]
+    .iter()
+    .any(|s| s.numerator() != 1)
+        || parent_collision_step
+            .checked_div(character_equivalence_step)?
+            .denominator()
+            != 1
+        || character_equivalence_step
+            .checked_div(momentum_collision_step)?
+            .denominator()
+            != 1
+    {
+        return Err(SubductionError::DomainCensusInconsistent {
+            reason: "physical-pair collision steps must nest within period one",
+        }
+        .into());
+    }
+    let boundaries = domain::residues_of(momentum_collision_step)?
+        .into_iter()
+        .map(|parameter| {
+            Ok(PhysicalLineBoundary {
+                parameter,
+                kind: if parameter
+                    .checked_div(character_equivalence_step)?
+                    .denominator()
+                    == 1
+                {
+                    PhysicalLineKind::RepeatedCharacter
+                } else {
+                    PhysicalLineKind::DistinctCharactersAtOneMomentum
+                },
+                parent_conjugate_stars_coincide: parameter
+                    .checked_div(parent_collision_step)?
+                    .denominator()
+                    == 1,
+            })
+        })
+        .collect::<Result<_, SubductionError>>()?;
+    Ok(PhysicalLinePartition {
+        subgroup,
+        embedding,
+        source,
+        parent_collision_step,
+        momentum_collision_step,
+        character_equivalence_step,
+        boundaries,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -246,7 +246,7 @@ impl ParentDomain {
 }
 
 /// The representative of a rational in `[0, 1)`.
-fn reduce_modulo_one(value: Rat) -> Rat {
+pub(super) fn reduce_modulo_one(value: Rat) -> Rat {
     let denominator = value.denominator();
     let numerator = value.numerator().rem_euclid(denominator);
     Rat::new(numerator, denominator).unwrap_or(Rat::ZERO)
@@ -533,7 +533,7 @@ fn sort_parameters(mut values: Vec<Rat>) -> Result<Vec<Rat>, SubductionError> {
 }
 
 /// The residues of a step in `[0, 1)`.
-fn residues_of(step: Rat) -> Result<Vec<Rat>, SubductionError> {
+pub(super) fn residues_of(step: Rat) -> Result<Vec<Rat>, SubductionError> {
     let denominator = step.denominator();
     let mut out = Vec::with_capacity(usize::try_from(denominator).unwrap_or(0));
     for j in 0..denominator {

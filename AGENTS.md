@@ -22,6 +22,60 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 物理共轭线的精确参数分区（P4 / R58，2026-10-29；基线ab393e7）
+
+主agent亲自实现并完成冻结验收。[新分区入口](<src/irrep/subduction_physical_line.rs>)
+partition_physical_line_with_embedding仍只接受不可变SG3 PIR29 LD1LE1及固定记录/embedding。
+保留源与几何身份，返回精确点单元、开区间、母群/子群动量碰撞步长和完整字符等价步长。
+[旧分区模块](<src/irrep/subduction_line_domain.rs>)仅把两个原有算术helper改为pub(super)，函数体不变；
+原73W、旧单CIR分区、逐点分导及高层路由不变，无新框架或依赖。
+
+令g为L_H基矢y分量的GCD，h为g与所有代表y平移的GCD。P2每个旋转保持y，
+所以y:H→Z为同态；由对偶格与Bézout，子群碰撞当且仅当2bg为整数，完整标量字符相同
+另要求2bh为整数。实现复用原lattice-coordinate精确步长，以三坐标整性条件逐代表求交，
+不另写GCD/同余求解器，不用采样猜切点。母群碰撞仍2b整数，little co-group始终C₂。
+
+记录24–37切点为0、1/2、1；38/39另有1/4、3/4。
+周期半开域[0,1)有**36个点代表及36个开区间**；每个记录把右端点1另列时，共52个点出现。
+开区间均为两个不同单点星、各一个复标量。38的四分之一参数点是一条标量两份；39为两条不同的±i screw标量，
+且39在b=1/2为**2GM2/CIR55**而非2GM1。SG5心格记录30–35没有四分之一参数切点。
+动量周期1/g与完整限制字符周期1/h不可混淆：38皆1/2，39分别1/2和1；碰撞步长只是周期的一半。
+此处给几何/复标量等价类，不插值存储标签、连续catalogue索引或gauge。边界见[契约](<docs/physical-line-subduction.md>)。
+
+新增[4项公开回归](<tests/physical_line_subduction.rs>)，本文件现8/0：逐个核对52点的真实CIR、
+每个开区间的3个内点，新增160调用/3,110原始矩阵重建；另6,224个有理整除对照、负/极大参数、
+距切点2⁻⁹⁰、旧单CIR缺少跨分量切点及错误上下文控制。分类先精确模1，不乘大参数或用浮点吸附；
+不改变旧逐点求值的Arithmetic边界。[4/8采样审计](<target/logs/r58-accepted/physical-audit.json>)
+各11,520调用/223,200原始矩阵重建，新增5个分区字段逐行符合独立Fraction断言；新16列整表逐字一致，
+SHA aa8a84a96a5140f6a49baceadebe4af2a86607e23ed18636a7e40af2009cad57。
+前11字段逐字等于R57，8类破坏控制拒绝。这是采样验证，精确完备性来自同余证明，不冒称遍历无限参数。
+
+[前置数学审计](<target/r58-math-report.md>)独立证明上述g/h并核对46条具名目标的精确命中方程；
+其240次执行链接旧R57，不当作新实现证据。[最终独立复核](<target/r58-final-review.md>)使用固定新库
+SHA75817bf74e270b59e757f4a307392b500fef433604186ac8be4c78450bc52c43，未发现范围内已确认缺陷。
+独立GCD与整数1/48前向affine oracle完成2,740精确查询（含MIN/MAX与2⁻¹²⁰邻域）、116数值调用、
+1,545原始矩阵及181拒绝控制；16旧分区+32旧逐点完整Debug载荷A/B逐字相同，
+SHA41bc13d5d739daf3c30693d62430ae14efece969103166195f988b39e95cd358。不是全库保证或代跑全电池。
+
+冻结275输入、2父workspace清单、12driver、6产物、27参考；[完整电池](<target/logs/r58-accepted/battery-audit.json>)
+**1,046/0**（1,042+4），80壳、84/84池作业、16/16腿exit0。debug公开8/模块2、严格debug/release Clippy、
+doc（含两physical示例）、Python/native源oracle、exact-rank4、fmt/diff通过；单斜仍13帧/262行/105非零原点/0差异。
+[旧二维](<target/logs/r58-accepted/matrix-audit.json>)43,492/7,556全部14字段、[旧三维](<target/logs/r58-accepted/target-audit.json>)
+38,380全部16字段4/8逐字等于R57；[标量Γ](<target/logs/r58-accepted/gamma-audit.json>)151,068仍等于R45。
+[联合身份](<target/logs/r58-accepted/gamma-domain-audit.json>)1,313源/16,721记录/240,496双η调用保持；
+普通366,260与W73/1,006上下文/5,756行、三TSV计数/SHA保持。所有冻结输入/产物前后不变；
+仅验收后更新账本/计划/清点，其余272另核对。全部后台任务及两位只读复核均已收齐，未删除其它项目、push或部署。
+
+初稿两次helper签名误用、文档转义产生的临时NUL、审计脚本换行转义均已在正式验收前修正；
+文档因read/edit拒绝binary而作已知字节修复，后重新正常读取。审计器保留修复前driver清单并重新冻结。
+复核探针原先误断言旧parent-domain候选表为空；zero/order2/added0哨兵并非增强，核对旧实现后修正探针；不是生产数学红灯。
+未降低门槛，并发墙钟不作性能结论。
+
+**下一步仍属P4**：接PIR45 U1UA1的显式k₀=(1/2,0,1/2)，不把offset塞进方向或冒充零偏置CIR表。
+原5,444未注册连续族仍仅1个新增显式物理入口，现有独立几何/字符分区；余5,443仍待接，不混入73W分母。
+面/体、一般复源、磁非Γ（先SG1 Z1）、spinor、setting/OP、别名及交付继续按[计划](<docs/completion-plan.md>)推进。
+目标active/armed、revision12/round25，历史R50暂停不适用，项目整体未完成。
+
 ### 零偏置物理共轭线的逐点分导（P4首批 / R57，2026-10-29；基线78634e6）
 
 主agent亲自实现并完成冻结验收。[新入口](<src/irrep/subduction_physical_line.rs>)只注册

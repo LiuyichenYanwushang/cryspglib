@@ -1,5 +1,6 @@
 use cryspglib::irrep::subduction::star::decompose::physical_line::{
-    PhysicalLineSubduction, physical_line_source, subduce_physical_line_with_embedding,
+    PhysicalLineKind, PhysicalLineSubduction, partition_physical_line_with_embedding,
+    physical_line_source, subduce_physical_line_with_embedding,
 };
 use cryspglib::irrep::subduction::star::decompose::{self, FullStarError};
 use cryspglib::irrep::subduction::{
@@ -348,4 +349,226 @@ fn record_parent_and_arithmetic_errors_are_not_converted_to_unsupported() {
     let mut stale = a;
     stale.ordinal = usize::MAX;
     assert!(subduce_physical_line_with_embedding(&stale, &e, source, r(1, 7)).is_err());
+}
+
+fn fixed_contexts() -> Vec<isotropy::IsotropySubgroup> {
+    query::irreps_of(3)
+        .iter()
+        .filter(|i| !i.spinor)
+        .flat_map(|i| isotropy::isotropy_subgroups(3, i.ml, L::Cdml).unwrap())
+        .collect()
+}
+
+#[test]
+fn exact_physical_partition_covers_all_sixteen_contexts_without_sampling_roots() {
+    use PhysicalLineKind::*;
+    let source = physical_line_source(3, "LD1LE1").unwrap();
+    let contexts = fixed_contexts();
+    assert_eq!(contexts.len(), 16);
+    let mut point_cells = 0;
+    let mut intervals = 0;
+    for c in &contexts {
+        let e = SubgroupEmbedding::from_isotropy_subgroup(c).unwrap();
+        let p = partition_physical_line_with_embedding(c, &e, source).unwrap();
+        assert!(std::ptr::eq(p.source(), source));
+        assert!(std::ptr::eq(p.subgroup(), c));
+        assert!(std::ptr::eq(p.embedding(), &e));
+        let g = if c.ordinal >= 38 { 2 } else { 1 };
+        let h = if c.ordinal == 38 { 2 } else { 1 };
+        assert_eq!(p.parent_collision_step(), r(1, 2));
+        assert_eq!(p.momentum_collision_step(), r(1, 2 * g));
+        assert_eq!(p.character_equivalence_step(), r(1, 2 * h));
+        let expected: Vec<_> = (0..2 * g).map(|n| r(n, 2 * g)).collect();
+        assert_eq!(
+            p.boundaries()
+                .iter()
+                .map(|b| b.parameter)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let mut closed = expected.clone();
+        closed.push(r(1, 1));
+        assert_eq!(
+            p.intervals(),
+            closed.windows(2).map(|x| (x[0], x[1])).collect::<Vec<_>>()
+        );
+        point_cells += closed.len();
+        intervals += p.intervals().len();
+        for b in closed {
+            let boundary = p.boundary(&b).unwrap();
+            assert_eq!(
+                boundary.parent_conjugate_stars_coincide,
+                (2 * b.numerator()) % b.denominator() == 0
+            );
+            let kind = if c.ordinal == 39 && b.denominator() == 4 {
+                DistinctCharactersAtOneMomentum
+            } else {
+                RepeatedCharacter
+            };
+            assert_eq!(boundary.kind, kind);
+            assert_eq!(p.kind_at(&b), kind);
+        }
+        // Independent integer divisibility checks, not the production coordinate
+        // solver. These supplement, rather than establish, the exact cut proof.
+        for n in -194..=194 {
+            let b = r(n, 97);
+            let collision = (2 * n * g) % 97 == 0;
+            let equal = (2 * n * h) % 97 == 0;
+            let expected = if equal {
+                RepeatedCharacter
+            } else if collision {
+                DistinctCharactersAtOneMomentum
+            } else {
+                DistinctMomenta
+            };
+            assert_eq!(p.kind_at(&b), expected);
+        }
+        // The old single-CIR partition has no cross-component relation at all.
+        let old = cryspglib::irrep::subduction::star::line_domain::full_star_partition(
+            c,
+            &e,
+            source.seed_table(),
+        )
+        .unwrap();
+        assert_eq!(old.arms.len(), 1);
+        assert!(old.boundaries.is_empty());
+    }
+    assert_eq!((point_cells, intervals), (52, 36));
+}
+
+#[test]
+fn physical_partition_is_exact_near_cuts_and_for_huge_period_translates() {
+    use PhysicalLineKind::*;
+    let source = physical_line_source(3, "LD1LE1").unwrap();
+    for label in ["Z1", "Z2"] {
+        let c = context(label);
+        let e = SubgroupEmbedding::from_isotropy_subgroup(&c).unwrap();
+        let p = partition_physical_line_with_embedding(&c, &e, source).unwrap();
+        let epsilon = r(1, 1_i128 << 90);
+        for boundary in p.boundaries() {
+            for b in [
+                boundary.parameter.checked_add(epsilon).unwrap(),
+                boundary.parameter.checked_sub(epsilon).unwrap(),
+            ] {
+                assert!(p.boundary(&b).is_none());
+                assert_eq!(p.kind_at(&b), DistinctMomenta);
+            }
+        }
+        let quarter = if label == "Z1" {
+            RepeatedCharacter
+        } else {
+            DistinctCharactersAtOneMomentum
+        };
+        for b in [
+            r(-1, 4),
+            r((1_i128 << 90) + 1, 4),
+            r(-((1_i128 << 90) + 1), 4),
+        ] {
+            assert_eq!(p.kind_at(&b), quarter);
+            assert!(!p.boundary(&b).unwrap().parent_conjugate_stars_coincide);
+        }
+        assert_eq!(p.kind_at(&r(i128::MAX, 1)), RepeatedCharacter);
+        assert!(
+            p.boundary(&r(i128::MAX, 1))
+                .unwrap()
+                .parent_conjugate_stars_coincide
+        );
+        for b in [r((1_i128 << 90) + 1, 8), r(-((1_i128 << 90) + 1), 8)] {
+            assert_eq!(p.kind_at(&b), DistinctMomenta);
+        }
+    }
+}
+
+#[test]
+fn every_physical_point_cell_and_open_cell_matches_native_matrices_and_target_identities() {
+    let source = physical_line_source(3, "LD1LE1").unwrap();
+    let mut calls = 0;
+    let mut matrices = 0;
+    for c in fixed_contexts() {
+        let e = SubgroupEmbedding::from_isotropy_subgroup(&c).unwrap();
+        let p = partition_physical_line_with_embedding(&c, &e, source).unwrap();
+        for b in p
+            .boundaries()
+            .iter()
+            .map(|p| p.parameter)
+            .chain(std::iter::once(r(1, 1)))
+        {
+            let v = subduce_physical_line_with_embedding(&c, &e, source, b).unwrap();
+            calls += 1;
+            matrices += verify(&v);
+            assert_eq!(v.blocks().len(), 1);
+            assert_eq!(v.blocks()[0].arm_indices(), vec![0, 1]);
+            let mut got: Vec<_> = v.blocks()[0]
+                .targets()
+                .iter()
+                .map(|t| (t.irnumber.unwrap(), t.multiplicity))
+                .collect();
+            got.sort();
+            let at_half = b == r(1, 2);
+            let at_quarter = b.denominator() == 4;
+            let want = match c.ordinal {
+                25 => vec![(if at_half { 7 } else { 1 }, 2)],
+                30..=35 => vec![(if at_half { 85 } else { 81 }, 2)],
+                38 => vec![(if at_quarter { 43 } else { 27 }, 2)],
+                39 if at_quarter => vec![(70, 1), (71, 1)],
+                39 => vec![(if at_half { 55 } else { 54 }, 2)],
+                _ => vec![(if at_half { 43 } else { 27 }, 2)],
+            };
+            assert_eq!(got, want, "ordinal={} b={b}", c.ordinal);
+            assert_eq!(
+                v.conjugate_stars_coincide(),
+                p.boundary(&b).unwrap().parent_conjugate_stars_coincide
+            );
+        }
+        for (left, right) in p.intervals() {
+            for (a, b) in [(1, 1), (2, 1), (1, 2)] {
+                let t = left
+                    .checked_mul(r(a, 1))
+                    .unwrap()
+                    .checked_add(right.checked_mul(r(b, 1)).unwrap())
+                    .unwrap()
+                    .checked_div(r(a + b, 1))
+                    .unwrap();
+                assert_eq!(p.kind_at(&t), PhysicalLineKind::DistinctMomenta);
+                let v = subduce_physical_line_with_embedding(&c, &e, source, t).unwrap();
+                calls += 1;
+                matrices += verify(&v);
+                assert_eq!(v.blocks().len(), 2);
+                for block in v.blocks() {
+                    assert_eq!(block.arm_indices().len(), 1);
+                    assert_eq!(block.block_dimension(), 1);
+                    assert_eq!(block.targets().len(), 1);
+                    let target = &block.targets()[0];
+                    assert_eq!(target.multiplicity, 1);
+                    assert_eq!(target.irnumber, None);
+                }
+            }
+        }
+    }
+    assert_eq!(calls, 160);
+    println!(
+        "PHYSICAL_PARTITION point_cells=52 open_cells=36 calls={calls} native_matrices={matrices}"
+    );
+}
+
+#[test]
+fn physical_partition_preserves_context_and_parent_refusals() {
+    let source = physical_line_source(3, "LD1LE1").unwrap();
+    let a = context("GM1");
+    let b = context("GM2");
+    let e = SubgroupEmbedding::from_isotropy_subgroup(&a).unwrap();
+    assert!(partition_physical_line_with_embedding(&b, &e, source).is_err());
+    let foreign = isotropy::isotropy_subgroups(1, "GM1", L::Cdml).unwrap()[0];
+    let other = SubgroupEmbedding::from_isotropy_subgroup(&foreign).unwrap();
+    assert!(matches!(
+        partition_physical_line_with_embedding(&foreign, &other, source),
+        Err(FullStarError::LineSourceMismatch {
+            source_sg: 3,
+            parent: 1,
+            ..
+        })
+    ));
+    let mut stale = a;
+    stale.ordinal = usize::MAX;
+    assert!(partition_physical_line_with_embedding(&stale, &e, source).is_err());
 }
