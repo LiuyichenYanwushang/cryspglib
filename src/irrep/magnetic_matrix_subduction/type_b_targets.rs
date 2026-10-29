@@ -57,7 +57,7 @@ fn failure(context: &TargetContext, label: &str, reason: &str) -> MatrixSubducti
 
 /// Values have already passed full authoritative H-row certification and binding.
 /// Check all summary data before excluding nonreal H from this narrow family.
-fn type_b_table(
+pub(super) fn type_b_table(
     corep: &MagneticCorepSummary,
     context: &TargetContext,
     values: &[Complex64],

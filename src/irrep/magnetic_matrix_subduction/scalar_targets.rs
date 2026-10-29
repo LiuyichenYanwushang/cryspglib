@@ -197,7 +197,7 @@ pub(super) fn resolve_h_row(
 
 /// Certify the entire H row (including redundant centered translations), then
 /// bind through the same strict H data-Hall Seitz map used by the real targets.
-fn unitary_values(
+pub(super) fn unitary_values(
     h: &HRow,
     corep: &MagneticCorepSummary,
     context: &TargetContext,
@@ -328,7 +328,7 @@ pub(super) fn bind_h_row(
     Ok(values)
 }
 
-fn scalar_table(
+pub(super) fn scalar_table(
     corep: &MagneticCorepSummary,
     context: &TargetContext,
     values: &[Complex64],

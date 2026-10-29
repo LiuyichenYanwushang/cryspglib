@@ -187,7 +187,7 @@ pub(super) fn realified_scalar_table(
     Ok(table)
 }
 
-fn is_conjugate_pair(
+pub(super) fn is_conjugate_pair(
     corep: &MagneticCorepSummary,
     context: &TargetContext,
     values: &[Vec<Complex64>; 2],

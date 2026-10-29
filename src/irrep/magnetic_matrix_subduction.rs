@@ -161,6 +161,13 @@ use crate::irrep::wigner;
 #[cfg(test)]
 mod source_inventory;
 
+mod three_dimensional_targets;
+pub use three_dimensional_targets::{
+    THREE_DIMENSIONAL_TARGET_SCOPE, ThreeDimensionalHStorage, ThreeDimensionalSubduction,
+    ThreeDimensionalSubductionError, ThreeDimensionalSubductionPiece, ThreeDimensionalTargetKind,
+    ThreeDimensionalTargetOperator, subduce_three_dimensional_gamma,
+};
+
 mod three_dimensional_sources;
 pub use three_dimensional_sources::{
     THREE_DIMENSIONAL_SOURCE_SCOPE, ThreeDimensionalGammaError, ThreeDimensionalGammaModel,
@@ -2302,7 +2309,22 @@ pub fn subduce_matrix_gamma(
 fn prepare_matrix_targets(
     model: &MatrixGammaModel,
 ) -> Result<(MagneticKPointSummary, TargetContext), MatrixSubductionError> {
-    let uni = model.uni;
+    prepare_gamma_targets(
+        model.uni,
+        model.parent_sg,
+        SOURCE_DIMENSION,
+        &model.classes,
+        &model.lattice,
+    )
+}
+
+fn prepare_gamma_targets(
+    uni: usize,
+    parent_sg: u8,
+    source_dimension: usize,
+    classes: &[MagneticOperation],
+    lattice: &[[Rat; 3]],
+) -> Result<(MagneticKPointSummary, TargetContext), MatrixSubductionError> {
     let partial =
         magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).map_err(|error| {
             MatrixSubductionError::SummaryFailed {
@@ -2321,7 +2343,7 @@ fn prepare_matrix_targets(
             && !unresolved.spinor
             && unresolved
                 .minimum_dimension
-                .is_none_or(|dimension| dimension <= SOURCE_DIMENSION)
+                .is_none_or(|dimension| dimension <= source_dimension)
         {
             return Err(MatrixSubductionError::UnresolvedTargetData {
                 uni,
@@ -2334,14 +2356,15 @@ fn prepare_matrix_targets(
 
     // The R27 proof that the summary's Γ columns really are the raw first-Hall
     // operations, and that position, index and column associate exactly.
-    let class_columns =
-        magnetic_subduction::proven_gamma_class_columns(uni, gamma, &model.classes, &model.lattice)
-            .map_err(|error| MatrixSubductionError::TargetProvenance {
-                uni,
-                reason: error.to_string(),
-            })?;
+    let class_columns = magnetic_subduction::proven_gamma_class_columns(
+        uni, gamma, classes, lattice,
+    )
+    .map_err(|error| MatrixSubductionError::TargetProvenance {
+        uni,
+        reason: error.to_string(),
+    })?;
 
-    let context = TargetContext::build(uni, gamma, model, &class_columns)?;
+    let context = TargetContext::from_group(uni, parent_sg, classes, lattice, &class_columns)?;
     Ok((gamma.clone(), context))
 }
 
@@ -2361,6 +2384,18 @@ fn is_matrix_candidate(corep: &MagneticCorepSummary) -> bool {
 /// Columns have already passed the R27 operation/class provenance proof.
 fn has_unitary_overlap(
     model: &MatrixGammaModel,
+    corep: &MagneticCorepSummary,
+    context: &TargetContext,
+) -> Result<bool, MatrixSubductionError> {
+    has_unitary_overlap_with_trace(
+        |class| matrix_trace(&model.actions[class].entries, SOURCE_DIMENSION),
+        corep,
+        context,
+    )
+}
+
+fn has_unitary_overlap_with_trace(
+    source_trace: impl Fn(usize) -> f64,
     corep: &MagneticCorepSummary,
     context: &TargetContext,
 ) -> Result<bool, MatrixSubductionError> {
@@ -2434,7 +2469,7 @@ fn has_unitary_overlap(
                 "the target identity character disagrees with its dimension".into(),
             ));
         }
-        inner += matrix_trace(&model.actions[class].entries, SOURCE_DIMENSION) * character.conj();
+        inner += source_trace(class) * character.conj();
         norm += character.norm_sqr();
         count += 1;
     }
@@ -2471,27 +2506,42 @@ struct TargetContext {
 impl TargetContext {
     fn build(
         uni: usize,
-        gamma: &MagneticKPointSummary,
+        _gamma: &MagneticKPointSummary,
         model: &MatrixGammaModel,
+        class_columns: &[Vec<usize>],
+    ) -> Result<Self, MatrixSubductionError> {
+        Self::from_group(
+            uni,
+            model.parent_sg,
+            &model.classes,
+            &model.lattice,
+            class_columns,
+        )
+    }
+
+    fn from_group(
+        uni: usize,
+        parent_sg: u8,
+        classes: &[MagneticOperation],
+        lattice: &[[Rat; 3]],
         class_columns: &[Vec<usize>],
     ) -> Result<Self, MatrixSubductionError> {
         let info = corep::cached_unitary_subgroup_with_hall(uni).ok_or(
             MatrixSubductionError::TargetSourceUnresolved {
                 uni,
-                sg: model.parent_sg,
+                sg: parent_sg,
                 label: "<unitary subgroup>".to_string(),
                 reason: "the unitary subgroup of the UNI could not be identified".to_string(),
             },
         )?;
         let h_seitz = wigner::ops_to_seitz(&info.ops_from_hall);
-        let _ = gamma;
         Ok(Self {
             uni,
             h_sg: info.sg as u8,
             h_seitz,
             setting: info.msg_to_data.clone(),
-            classes: model.classes.clone(),
-            lattice: model.lattice.clone(),
+            classes: classes.to_vec(),
+            lattice: lattice.to_vec(),
             class_columns: class_columns.to_vec(),
         })
     }
@@ -3063,14 +3113,18 @@ fn verify_full_isometry(pieces: &[MatrixSubductionPiece]) -> bool {
 }
 
 fn verify_column_isometry(columns: &[Vec<Complex64>]) -> bool {
+    verify_column_isometry_for_source(columns, SOURCE_DIMENSION)
+}
+
+fn verify_column_isometry_for_source(columns: &[Vec<Complex64>], source_dimension: usize) -> bool {
     let total = columns.len();
-    if total != SOURCE_DIMENSION || columns.iter().any(|c| c.len() != SOURCE_DIMENSION) {
+    if total != source_dimension || columns.iter().any(|c| c.len() != source_dimension) {
         return false;
     }
     // V†V = I_total
     for left in 0..total {
         for right in 0..total {
-            let entry: Complex64 = (0..SOURCE_DIMENSION)
+            let entry: Complex64 = (0..source_dimension)
                 .map(|row| columns[left][row].conj() * columns[right][row])
                 .sum();
             let expected = if left == right {
@@ -3084,8 +3138,8 @@ fn verify_column_isometry(columns: &[Vec<Complex64>]) -> bool {
         }
     }
     // Σ U U† = V V† = I₂
-    for row in 0..SOURCE_DIMENSION {
-        for column in 0..SOURCE_DIMENSION {
+    for row in 0..source_dimension {
+        for column in 0..source_dimension {
             let entry: Complex64 = (0..total)
                 .map(|index| columns[index][row] * columns[index][column].conj())
                 .sum();
@@ -3105,10 +3159,18 @@ fn verify_column_isometry(columns: &[Vec<Complex64>]) -> bool {
 /// Normalize one intertwiner so that `U†U = I`, or `None` when the columns are
 /// not orthogonal-by-Schur.
 fn normalize_intertwiner(matrix: &[Complex64], dimension: usize) -> Option<Vec<Complex64>> {
+    normalize_intertwiner_for_source(matrix, dimension, SOURCE_DIMENSION)
+}
+
+fn normalize_intertwiner_for_source(
+    matrix: &[Complex64],
+    dimension: usize,
+    source_dimension: usize,
+) -> Option<Vec<Complex64>> {
     let mut gram = vec![Complex64::new(0.0, 0.0); dimension * dimension];
     for row in 0..dimension {
         for column in 0..dimension {
-            gram[row * dimension + column] = (0..SOURCE_DIMENSION)
+            gram[row * dimension + column] = (0..source_dimension)
                 .map(|k| matrix[k * dimension + row].conj() * matrix[k * dimension + column])
                 .sum();
         }

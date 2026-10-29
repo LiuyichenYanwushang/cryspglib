@@ -22,6 +22,66 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 三维混合目标分导与有限Γ源域闭合（P3b / R56，2026-10-29；基线 dc536db）
+
+主agent亲自实现并完成冻结验收。[独立入口](<src/irrep/magnetic_matrix_subduction/three_dimensional_targets.rs>)
+subduce_three_dimensional_gamma 借用R55认证模型，在一次收集中组合A₁/A₂/A₃、实scalar-H B₂、
+实/共轭scalar-H C₂和纯幺正共轭packet。不是拼接旧完整二维报告，也不自动改旧高层路由。
+源模型的source-only scope、旧二维源/四系数算子/返回载荷及门槛保持；原本d维的实目标算子
+与复scalar算子经一个枚举复用，无新依赖、SVD或泛化矩阵框架。边界见[§16](<docs/magnetic-matrix-gamma-subduction.md#L493>)。
+
+[共享修改](<src/irrep/magnetic_matrix_subduction.rs>)只抽出维数参数、源迹回调和群上下文，旧调用仍传2。
+完整R27原始M列/索引/类来源、未决数据门槛、H data-Hall/存储整表认证和目标全群律保留；
+新门槛按源3检查。A/C/pair/B的H范数分别1/2/2/4，字符重叠只排除零，不作生产重数。
+正重叠的数据/范围/Hom错误均拒绝；保留全部真实H身份及matrix/standalone/CIR storage。
+标量重复copy作残余投影后归一化，防非正交RREF基被丢弃；每份再独立重验复半线性方程。
+B的四维实Hom只取一个二维copy；unitary packet不假设复不可约，从真实Hom实分量避开
+I+iJ的秩一陷阱。二维/三维块在源3中至多一份；最终全部列共同证明Gram/投影I₃及每个
+磁类的复基1/i、混合向量完整重建。仅适用于已认证的实非spinor非compound三维Γ源。
+
+新增5项模块与[3项公开回归](<tests/magnetic_three_dimensional_targets.rs>)。175次公开模型/分导覆盖：
+八种形状加实C/复A的双η/双标签40次、全部87个完整母群目标（含20非零源原点），以及48次
+非零源原点/anti/非平凡嵌入。独立核对具名H存储、原始M索引、全部目标乘法、每份Hom、
+全Gram/投影和复重建。合成控制含非正交重复scalar、秩一packet、四元数实核、错误平方、
+重复/缺失copy、保持Gram却破坏anti的相位、正重叠缺失/非有限/错误H数据；不冒称官方缺陷。
+
+[全域目标审计](<target/logs/r56-accepted/target-audit.json>)沿固定R47几何，87源、6,378记录、
+19,190对×两η=**38,380次实际完整混合分导**，输入/目标错误0。八种形状及全部H身份逐行
+等于先前预测：A₃ 2,738；三个不同A₁ 10,112；A₁+另一A₁两份9,852；单A₁三份5,982；
+A₁+A₂ 7,204；A₁+B₂ 20；A₁+C₂ 2,206；A₁+unitary pair266（此处均为双η调用数）。
+4/8线程及探索整表逐字相同，SHA6b7d6333736a1a794a562c1a44e1d471167f3660adb6ad6a5fcc63fa640dc0c1。
+13种审计破坏控制拒绝；每行原12个R55源认证字段保持，其旧SHA仍c1dd86681a649548fe99f7bc7dd65f7230f1ff1c6982ce3f2752d5be4ea3ff2e。
+完整来源/半线性群律/Hom由运行时及独立oracle检查，不以预测或64位Debug指纹代替矩阵证明；
+指纹也不是完整矩阵字节或加密等同性证明。
+
+[联合身份审计](<target/logs/r56-accepted/gamma-domain-audit.json>)与P1清单逐键相等：**1,313源**
+=980实一维+177实二维+69二维compound+87实三维；16,721记录、120,248记录源对、
+**240,496双η调用**均有完整路线。每个身份只计一次，不重复相加旧A/scalar等重叠接口。
+这只是当前固定R47记录/几何域及四条显式来源路线闭合，不是spinor、非Γ、一般复源或全项目完成。
+[旧矩阵审计](<target/logs/r56-accepted/matrix-audit.json>)43,492/7,556的**全部14字段**逐字等于R55，
+旧B40、其它家族和七个破坏控制保持。[实一维Γ](<target/logs/r56-accepted/gamma-audit.json>)151,068
+仍4/8逐字等于R45，全部错误/未决0；普通全域及73条已注册线的旧计数/SHA不变。
+
+冻结271输入、2父workspace清单、9主driver、另一个联合审计脚本、4测量产物与16参考文件。
+[完整电池](<target/logs/r56-accepted/battery-audit.json>)**1,036/0**（1,028+8），79测试壳、83/83池作业、
+16/16腿exit0；debug模块48/0、新公开3/0、R55公开源4/0。严格debug/release Clippy、doc/Python、
+exact-rank四控制、fmt/diff通过；单斜仍13帧/262记录/105非零原点/0差异。全部冻结项验收
+前后逐项不变；仅随后更新账本与计划，其余269输入另核对。并发墙钟不作性能结论。
+
+[独立只读复核](<target/r56-review.md>)覆盖六文件及直接证明链，未发现已确认缺陷。单独链接
+[固定9ea004c5发布库](<target/r56-reviewed-libcryspglib.rlib>)，独立构造Reynolds实Hom投影：
+22模型、146类、46投影的自伴/幂等/迹，584次稠密复source/target gauge系数重建，138次
+错误anti-adjoint阴性控制、22次旧二维拒绝，均通过。源哈希前后相同；不冒称重跑全域/电池。
+初稿编译的参数次序/闭包生命周期/测试helper及一项等价迭代lint在冻结前修正；一次前台测试
+因外层时限中断，随后受管重跑通过。复核首次rlib命名不合rustc要求，用指向原字节的别名
+修复。工具/编译问题不算数学反例，没有降低门槛；全部最终验收后台任务已收齐exit0。
+
+**下一步P4尚未实施**：先认证SG3 PIR#29 LD1LE1的实际CIR、物理配对与irtranslation，再接
+零偏置线；随后#45 U1UA1非零k₀，磁非Γ先SG1 Z1。5,444未注册连续族、其它一般复源、
+spinor、setting/OP、别名与交付仍按[计划](<docs/completion-plan.md>)推进。不将本有限Γ闭合
+冒称一般分导或项目完成。目标active/armed、revision12/round23；历史R50暂停不适用。
+未删除其它项目，没有push或部署。
+
 ### 独立实三维 Γ 源认证（P2b / R55，2026-10-29；基线 f4ff526）
 
 本批由主agent亲自实现并完成冻结验收，范围明确收敛为**源认证，不是三维目标分导**。
