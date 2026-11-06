@@ -1,6 +1,7 @@
 //! Explicit physical line sources, separate from the original 73 W tables.
 //!
-//! The certified domain is the eight SG3 scalar beta lines: LD1LE1/LD2LE2,
+//! The certified domain is the eight scalar beta lines in each of SG3 and SG4:
+//! LD1LE1/LD2LE2,
 //! U1UA1/U2UA2, V1VA1/V2VA2 and W1WA1/W2WA2. They have transverse offsets
 //! (0,0), (1/2,1/2), (0,1/2), (1/2,0), respectively, and C2 point sign +1/-1.
 //! Each has ONE actual scalar CIR (LD1/2, U1/2, V1/2, W1/2), not a stored
@@ -11,8 +12,10 @@
 //! the same CIR and gives wrong translation/screw characters.
 //!
 //! At b in (1/2)Z the conjugate stars coincide; the two component identities are
-//! retained. This is NOT spatial little-group enhancement: the SG3 little group
-//! is C2 for every b. The result describes the continued two-dimensional carrier,
+//! retained. This is NOT spatial little-group enhancement: both little groups
+//! are C2 for every b. In SG4 the half-beta screw characters are distinct +/-i,
+//! and the full labelled parent period is TWO rather than one.
+//! The result describes the continued two-dimensional carrier,
 //! including its reducible specializations, not a new endpoint irrep label.
 //!
 //! This entry restricts to an explicitly supplied, validated fixed isotropy
@@ -90,6 +93,13 @@ impl PhysicalLineSource {
     pub fn direction(&self) -> Vec3R {
         line_direction(self.seed).expect("certified source direction")
     }
+    /// Full labelled character period in the parent, not just the momentum period.
+    /// P2 has period one; the P21 screw forces period two and swaps the two
+    /// native source labels after a unit parameter shift.
+    pub fn parent_character_period(&self) -> Rat {
+        Rat::new(if self.parent_sg() == 4 { 2 } else { 1 }, 1)
+            .expect("certified parent character period")
+    }
     /// Existing provenance tags keep the same CIR number on both components.
     pub const fn components(&self) -> [SubductionComponent; 2] {
         [
@@ -126,7 +136,25 @@ const SG3_NEGATIVE_POINT_OPERATIONS: &[LittleOperation] = &[
     },
 ];
 
-// Eight pinned scalar beta sources: irtype=3, one stored k arm, P centering,
+// P21 has irtranslation equal to the stored screw translation. Thus the
+// native t-tau+irtranslation is the full t already used by LineArmSource.
+const SG4_SCALAR_POINT_OPERATIONS: &[LittleOperation] = &[
+    SG3_SCALAR_POINT_OPERATIONS[0],
+    LittleOperation {
+        element: "-x,y+1/2,-z",
+        translation: ["0", "1/2", "0"],
+        ..SG3_SCALAR_POINT_OPERATIONS[1]
+    },
+];
+const SG4_NEGATIVE_POINT_OPERATIONS: &[LittleOperation] = &[
+    SG4_SCALAR_POINT_OPERATIONS[0],
+    LittleOperation {
+        character: [-1, 0],
+        ..SG4_SCALAR_POINT_OPERATIONS[1]
+    },
+];
+
+// Eight pinned SG3 scalar beta sources: irtype=3, one stored k arm, P centering,
 // E/C2y point matrices I2/(epsilon I2), zero Seitz AND irtranslations.
 // Hence the existing seed character D(R) exp(+2pi i k.t) is the native CIR.
 // The original 73 W tables and their source/context lookup are not modified.
@@ -255,10 +283,131 @@ static SOURCES: &[PhysicalLineSource] = &[
             operations: SG3_NEGATIVE_POINT_OPERATIONS,
         },
     },
+    PhysicalLineSource {
+        label: "LD1LE1",
+        pir_irnumber: 56,
+        seed_irnumber: 56,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "LD1",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "LD2LE2",
+        pir_irnumber: 57,
+        seed_irnumber: 57,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "LD2",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "U1UA1",
+        pir_irnumber: 68,
+        seed_irnumber: 72,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "U1",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "U2UA2",
+        pir_irnumber: 69,
+        seed_irnumber: 73,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "U2",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "V1VA1",
+        pir_irnumber: 70,
+        seed_irnumber: 74,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "V1",
+            k_label: "V",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "V2VA2",
+        pir_irnumber: 71,
+        seed_irnumber: 75,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "V2",
+            k_label: "V",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "W1WA1",
+        pir_irnumber: 72,
+        seed_irnumber: 76,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "W1",
+            k_label: "W",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "W2WA2",
+        pir_irnumber: 73,
+        seed_irnumber: 77,
+        dimension: 2,
+        offset: [(1, 2), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 4,
+            label: "W2",
+            k_label: "W",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG4_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
 ];
 
 /// Look up an explicitly certified physical line by its exact PIR label.
-/// All eight SG3 scalar beta lines retain their native CIR, offset and point sign.
+/// The SG3 and SG4 scalar beta cohorts retain distinct PIR/CIR namespaces,
+/// their full affine offsets and native point signs.
 pub fn physical_line_source(parent_sg: u8, label: &str) -> Option<&'static PhysicalLineSource> {
     SOURCES
         .iter()
@@ -511,7 +660,7 @@ pub fn subduce_physical_line_with_embedding<'a>(
 
 /// The exact complex-character content of the restricted physical pair.
 ///
-/// Both components are scalar for the registered SG3 source. A momentum
+/// Both components are scalar for every registered P2/P21 source. A momentum
 /// collision is not necessarily equality of their characters on the whole
 /// subgroup: the SG4 screw distinguishes them at quarter parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -524,10 +673,10 @@ pub enum PhysicalLineKind {
     RepeatedCharacter,
 }
 
-/// One exact point cell of a physical-pair partition, in the period [0,1).
+/// One exact point cell within the source's full parent character period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PhysicalLineBoundary {
-    /// Parameter modulo one. The endpoint one is represented by zero.
+    /// Parameter in [0,period). Only the full-period endpoint is represented by zero.
     pub parameter: Rat,
     /// Content at this point, not the content of an adjacent open interval.
     pub kind: PhysicalLineKind,
@@ -584,16 +733,29 @@ impl<'a> PhysicalLinePartition<'a> {
     pub const fn character_equivalence_step(&self) -> Rat {
         self.character_equivalence_step
     }
-    /// Point cells in [0,1), in ascending order; one is the same point cell as zero.
+    /// Point cells in ascending order within the source's full parent period.
     pub fn boundaries(&self) -> &[PhysicalLineBoundary] {
         &self.boundaries
     }
-    /// Find a point cell, reducing the input modulo the full parent period one.
+    /// Find a point cell modulo the full parent character period (one or two).
     /// This exact classification does not evaluate a potentially overflowing
     /// unreduced Bloch vector, nor change the pointwise evaluator's arithmetic contract.
     pub fn boundary(&self, parameter: &Rat) -> Option<&PhysicalLineBoundary> {
+        let period = self.source.parent_character_period().numerator();
+        // A canonical mod-two Rat need not fit i128: -1/MAX is a witness.
+        // Keep the integer turn and fractional residue separate; never form 2*d.
+        let turn = parameter
+            .numerator()
+            .div_euclid(parameter.denominator())
+            .rem_euclid(period);
         let reduced = super::super::line_domain::reduce_modulo_one(*parameter);
-        self.boundaries.iter().find(|b| b.parameter == reduced)
+        self.boundaries.iter().find(|b| {
+            b.parameter
+                .numerator()
+                .div_euclid(b.parameter.denominator())
+                == turn
+                && super::super::line_domain::reduce_modulo_one(b.parameter) == reduced
+        })
     }
     /// Exact content at any representable rational parameter, including negative
     /// and period-translated values. No tolerance or near-boundary snapping.
@@ -601,7 +763,7 @@ impl<'a> PhysicalLinePartition<'a> {
         self.boundary(parameter)
             .map_or(PhysicalLineKind::DistinctMomenta, |b| b.kind)
     }
-    /// Open interval endpoints in [0,1]. All interiors have DistinctMomenta content;
+    /// Open interval endpoints in [0,period]. All interiors have DistinctMomenta content;
     /// endpoints must be evaluated as point cells, not by an interior sample.
     pub fn intervals(&self) -> Vec<(Rat, Rat)> {
         self.boundaries
@@ -612,13 +774,13 @@ impl<'a> PhysicalLinePartition<'a> {
                     .iter()
                     .skip(1)
                     .map(|b| b.parameter)
-                    .chain(std::iter::once(Rat::ONE)),
+                    .chain(std::iter::once(self.source.parent_character_period())),
             )
             .collect()
     }
 }
 
-/// Partition any certified SG3 scalar physical pair over a parent period.
+/// Partition any certified P2/P21 scalar physical pair over its full parent period.
 ///
 /// Here D±({R|t})=epsilon(R) exp(±2πi(k0.t+b t_y)), epsilon(R) in {1,-1}.
 /// The same real point sign cancels when comparing the two characters. Since
@@ -659,9 +821,10 @@ pub fn partition_physical_line_with_embedding<'a>(
 ) -> Result<PhysicalLinePartition<'a>, FullStarError> {
     use super::super::line_domain as domain;
     validate_line_context(subgroup, embedding, source.seed)?;
-    // All certified P2 sources have real scalar point characters and 2*k0 in the
-    // parent reciprocal lattice. Integral parent translations then cancel k0
-    // from BOTH the momentum-collision and full-character-equality equations.
+    let period = source.parent_character_period();
+    // Certified P2/P21 sources have real scalar point coefficients and half-
+    // reciprocal transverse k0. Integer x/z translations cancel k0 from BOTH
+    // comparison equations, even when the screw has half-integral y.
     // This is not a general affine congruence solver.
     let direction = line_direction(source.seed)?;
     let difference = direction.checked_add(&direction)?;
@@ -696,12 +859,19 @@ pub fn partition_physical_line_with_embedding<'a>(
             .ok_or_else(missing_step)?;
     let mut character_equivalence_step = momentum_collision_step;
     for operation in embedding.representatives() {
-        // y is an additive homomorphism on this P2 subgroup. Translations and
+        // y is an additive homomorphism on this P2/P21 subgroup. Translations and
         // one representative of each point class therefore test the entire group.
         let y = operation.translation.get(1);
-        if !operation.translation.is_integral() {
+        if operation.translation.get(0).denominator() != 1
+            || operation.translation.get(2).denominator() != 1
+            || period.numerator() % y.denominator() != 0
+        {
             return Err(SubductionError::DomainCensusInconsistent {
-                reason: "physical P2 character must have parameter period one",
+                reason: if source.parent_sg() == 3 {
+                    "physical P2 character must have parameter period one"
+                } else {
+                    "physical P21 requires integer transverse and half-integer axial translations"
+                },
             }
             .into());
         }
@@ -714,8 +884,9 @@ pub fn partition_physical_line_with_embedding<'a>(
             domain::minimal_parameter_step_via_coordinates(&Lattice::integer(), &constraints)?
                 .ok_or_else(missing_step)?;
     }
-    // Period one makes each step a reciprocal integer; its residues are ordered.
-    // Parent collisions imply full-character equality, which implies child collision.
+    // Every step divides the certified parent period. Both parent collisions and
+    // character equivalence imply child collision, but in P21 a parent collision
+    // need NOT imply character equivalence (the half-beta screw has +/-i).
     if [
         parent_collision_step,
         momentum_collision_step,
@@ -724,7 +895,7 @@ pub fn partition_physical_line_with_embedding<'a>(
     .iter()
     .any(|s| s.numerator() != 1)
         || parent_collision_step
-            .checked_div(character_equivalence_step)?
+            .checked_div(momentum_collision_step)?
             .denominator()
             != 1
         || character_equivalence_step
@@ -733,14 +904,16 @@ pub fn partition_physical_line_with_embedding<'a>(
             != 1
     {
         return Err(SubductionError::DomainCensusInconsistent {
-            reason: "physical-pair collision steps must nest within period one",
+            reason: "physical-pair collision steps must nest within the certified period",
         }
         .into());
     }
-    let boundaries = domain::residues_of(momentum_collision_step)?
-        .into_iter()
-        .map(|parameter| {
-            Ok(PhysicalLineBoundary {
+    let residues = domain::residues_of(momentum_collision_step)?;
+    let mut boundaries = Vec::new();
+    for turn in 0..period.numerator() {
+        for residue in &residues {
+            let parameter = residue.checked_add(Rat::new(turn, 1)?)?;
+            boundaries.push(PhysicalLineBoundary {
                 parameter,
                 kind: if parameter
                     .checked_div(character_equivalence_step)?
@@ -755,9 +928,9 @@ pub fn partition_physical_line_with_embedding<'a>(
                     .checked_div(parent_collision_step)?
                     .denominator()
                     == 1,
-            })
-        })
-        .collect::<Result<_, SubductionError>>()?;
+            });
+        }
+    }
     Ok(PhysicalLinePartition {
         subgroup,
         embedding,

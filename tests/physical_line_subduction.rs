@@ -71,14 +71,52 @@ const NATIVE_SOURCES: [(&str, u32, &str, i128, i128, bool); 8] = [
     ("W1WA1", 49, "W1", 1, 0, false),
     ("W2WA2", 50, "W2", 1, 0, true),
 ];
+// PIR and CIR are separate namespaces: six SG4 pairs have different numbers.
+const NATIVE_SCREW_SOURCES: [(&str, u32, u32, &str, i128, i128, bool); 8] = [
+    ("LD1LE1", 56, 56, "LD1", 0, 0, false),
+    ("LD2LE2", 57, 57, "LD2", 0, 0, true),
+    ("U1UA1", 68, 72, "U1", 1, 1, false),
+    ("U2UA2", 69, 73, "U2", 1, 1, true),
+    ("V1VA1", 70, 74, "V1", 0, 1, false),
+    ("V2VA2", 71, 75, "V2", 0, 1, true),
+    ("W1WA1", 72, 76, "W1", 1, 0, false),
+    ("W2WA2", 73, 77, "W2", 1, 0, true),
+];
 fn native_bits(irnumber: u32) -> (i128, i128, bool) {
-    let (_, _, _, x, z, negative) = NATIVE_SOURCES.iter().find(|s| s.1 == irnumber).unwrap();
-    (*x, *z, *negative)
+    NATIVE_SOURCES
+        .iter()
+        .find(|s| s.1 == irnumber)
+        .map(|s| (s.3, s.4, s.5))
+        .or_else(|| {
+            NATIVE_SCREW_SOURCES
+                .iter()
+                .find(|s| s.1 == irnumber)
+                .map(|s| (s.4, s.5, s.6))
+        })
+        .unwrap()
 }
 // Do not read the implementation's offset or coefficient table. Point sign and
 // the two transverse parity factors are independent, including mixed translates.
 fn native_phase(irnumber: u32, b: Rat, op: &ExactSeitz) -> C {
-    let z = phase(b, op);
+    let z = if NATIVE_SCREW_SOURCES.iter().any(|s| s.1 == irnumber) {
+        assert!(op.rotation() == I || op.rotation() == C2);
+        assert_eq!(op.translation().get(0).denominator(), 1);
+        assert_eq!(op.translation().get(2).denominator(), 1);
+        let twice_y = op.translation().get(1).checked_mul(r(2, 1)).unwrap();
+        assert_eq!(twice_y.denominator(), 1);
+        assert_eq!(
+            twice_y.numerator().rem_euclid(2),
+            i128::from(op.rotation() == C2)
+        );
+        let theta = std::f64::consts::TAU
+            * b.checked_mul(op.translation().get(1))
+                .unwrap()
+                .principal_angle()
+                .to_f64();
+        C::new(theta.cos(), theta.sin())
+    } else {
+        phase(b, op)
+    };
     let (xbit, zbit, negative) = native_bits(irnumber);
     let t = op.translation();
     let odd = (xbit == 1 && t.get(0).numerator().rem_euclid(2) == 1)
@@ -88,7 +126,11 @@ fn native_phase(irnumber: u32, b: Rat, op: &ExactSeitz) -> C {
 }
 fn verify_native(report: &PhysicalLineSubduction<'_>, irnumber: u32) -> usize {
     assert_eq!(report.source().pir_irnumber(), irnumber);
-    assert_eq!(report.source().seed_irnumber(), irnumber);
+    let cir = NATIVE_SCREW_SOURCES
+        .iter()
+        .find(|s| s.1 == irnumber)
+        .map_or(irnumber, |s| s.2);
+    assert_eq!(report.source().seed_irnumber(), cir);
     let (xbit, zbit, _) = native_bits(irnumber);
     let (xoffset, zoffset) = (r(xbit, 2), r(zbit, 2));
     assert_eq!(report.source().dimension(), 2);
@@ -96,8 +138,8 @@ fn verify_native(report: &PhysicalLineSubduction<'_>, irnumber: u32) -> usize {
     assert_eq!(
         report.source().components(),
         [
-            SubductionComponent::RealificationSeed { irnumber },
-            SubductionComponent::RealificationConjugate { irnumber }
+            SubductionComponent::RealificationSeed { irnumber: cir },
+            SubductionComponent::RealificationConjugate { irnumber: cir }
         ]
     );
     let e = report.embedding();
@@ -253,7 +295,7 @@ fn physical_identity_is_one_native_seed_and_does_not_change_the_w_registry() {
         assert_eq!(op.translation, ["0"; 3]);
         assert_eq!(op.character, [1, 0]);
     }
-    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "UA1"), (4, "LD1LE1")] {
+    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "UA1"), (5, "LD1LE1")] {
         assert!(physical_line_source(sg, label).is_none());
     }
     assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
@@ -393,10 +435,13 @@ fn record_parent_and_arithmetic_errors_are_not_converted_to_unsupported() {
 }
 
 fn fixed_contexts() -> Vec<isotropy::IsotropySubgroup> {
-    query::irreps_of(3)
+    fixed_contexts_for(3)
+}
+fn fixed_contexts_for(parent: u8) -> Vec<isotropy::IsotropySubgroup> {
+    query::irreps_of(parent)
         .iter()
         .filter(|i| !i.spinor)
-        .flat_map(|i| isotropy::isotropy_subgroups(3, i.ml, L::Cdml).unwrap())
+        .flat_map(|i| isotropy::isotropy_subgroups(parent, i.ml, L::Cdml).unwrap())
         .collect()
 }
 
@@ -636,7 +681,7 @@ fn affine_source_has_real_identity_and_no_incomplete_zero_offset_table() {
     assert!(zero.seed_table().is_some());
     assert!(physical_line_source(3, "U1").is_none());
     assert!(physical_line_source(3, "UA1").is_none());
-    assert!(physical_line_source(4, "U1UA1").is_none());
+    assert!(physical_line_source(5, "U1UA1").is_none());
     assert!(query::irreps_of(3).iter().all(|i| i.ml != "U1UA1"));
     assert!(line_monodromy::line_sources(3).is_empty());
     assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
@@ -840,7 +885,7 @@ fn all_scalar_beta_sources_keep_native_identity_and_genuine_zero_offset_tables()
         }
         assert!(physical_line_source(3, cir).is_none());
         assert!(physical_line_source(3, &label[cir.len()..]).is_none());
-        assert!(physical_line_source(4, label).is_none());
+        assert!(physical_line_source(5, label).is_none());
         assert!(query::irreps_of(3).iter().all(|i| i.ml != label));
     }
     for label in ["F1", "G1", "GP1GQ1"] {
@@ -913,16 +958,19 @@ fn all_eight_native_carriers_reconstruct_in_every_fixed_context() {
     assert_eq!((calls, matrices), (1280, 24800));
     assert!(wrong_point_sign > 1000);
 }
-#[test]
-fn all_scalar_line_boundary_cirs_and_owners_match_the_native_fixture() {
+fn verify_native_boundary_fixture(
+    parent: u8,
+    fixture: &str,
+    sources: &[(&str, u32)],
+) -> (usize, usize, usize, usize) {
     use std::collections::BTreeSet;
     // Generated by an independent native-CIR/Fraction forward-affine audit,
     // not this solver. Both copies retain real owner/component provenance.
     let mut seen = BTreeSet::new();
     let mut matrices = 0;
     let mut calls = 0;
-    let contexts = fixed_contexts();
-    for line in include_str!("physical_line_boundaries.tsv").lines().skip(1) {
+    let contexts = fixed_contexts_for(parent);
+    for line in fixture.lines().skip(1) {
         let fields: Vec<_> = line.split('\t').collect();
         assert_eq!(fields.len(), 13);
         let id: u32 = fields[0].parse().unwrap();
@@ -939,7 +987,7 @@ fn all_scalar_line_boundary_cirs_and_owners_match_the_native_fixture() {
         let report = subduce_physical_line_with_embedding(
             sg,
             &e,
-            physical_line_source(3, fields[1]).unwrap(),
+            physical_line_source(parent, fields[1]).unwrap(),
             b,
         )
         .unwrap();
@@ -978,18 +1026,17 @@ fn all_scalar_line_boundary_cirs_and_owners_match_the_native_fixture() {
         got.sort_by_key(|t| t.1);
         assert_eq!(got, expected, "source{id} record{ordinal} b={b:?}");
     }
-    assert_eq!(seen.len(), 416);
     let mut intervals = 0;
-    for (label, id, _, _, _, _) in NATIVE_SOURCES {
+    for &(label, id) in sources {
         for sg in &contexts {
             let e = SubgroupEmbedding::from_isotropy_subgroup(sg).unwrap();
-            let source = physical_line_source(3, label).unwrap();
+            let source = physical_line_source(parent, label).unwrap();
             let part = partition_physical_line_with_embedding(sg, &e, source).unwrap();
             for b in part
                 .boundaries()
                 .iter()
                 .map(|p| p.parameter)
-                .chain([Rat::ONE])
+                .chain([source.parent_character_period()])
             {
                 assert!(seen.contains(&(id, sg.ordinal, b.numerator(), b.denominator())));
             }
@@ -1020,5 +1067,260 @@ fn all_scalar_line_boundary_cirs_and_owners_match_the_native_fixture() {
             }
         }
     }
-    assert_eq!((intervals, calls, matrices), (288, 1280, 24880));
+    (seen.len(), intervals, calls, matrices)
+}
+
+#[test]
+fn all_scalar_line_boundary_cirs_and_owners_match_the_native_fixture() {
+    let sources: Vec<_> = NATIVE_SOURCES.iter().map(|s| (s.0, s.1)).collect();
+    assert_eq!(
+        verify_native_boundary_fixture(3, include_str!("physical_line_boundaries.tsv"), &sources),
+        (416, 288, 1280, 24880)
+    );
+}
+
+#[test]
+fn all_screw_boundary_cirs_and_owners_match_the_native_fixture() {
+    let sources: Vec<_> = NATIVE_SCREW_SOURCES.iter().map(|s| (s.0, s.1)).collect();
+    assert_eq!(
+        verify_native_boundary_fixture(
+            4,
+            include_str!("physical_screw_line_boundaries.tsv"),
+            &sources
+        ),
+        (512, 416, 1760, 27120)
+    );
+}
+
+#[test]
+fn screw_sources_keep_native_namespaces_and_full_parent_period() {
+    for (label, pir, cir, seed, x, z, _) in NATIVE_SCREW_SOURCES {
+        let source = physical_line_source(4, label).unwrap();
+        assert_eq!((source.pir_irnumber(), source.seed_irnumber()), (pir, cir));
+        assert_eq!((source.parent_sg(), source.seed_label()), (4, seed));
+        assert_eq!(source.offset(), Vec3R::new([r(x, 2), Rat::ZERO, r(z, 2)]));
+        assert_eq!(
+            source.direction(),
+            Vec3R::new([Rat::ZERO, Rat::ONE, Rat::ZERO])
+        );
+        assert_eq!(source.parent_character_period(), r(2, 1));
+        assert_eq!(source.seed_table().is_some(), x == 0 && z == 0);
+        assert_eq!(
+            physical_line_source(3, label)
+                .unwrap()
+                .parent_character_period(),
+            Rat::ONE
+        );
+    }
+    for label in ["F1", "G1G1", "GP1GQ1", "LD1", "LE1", "UA1"] {
+        assert!(physical_line_source(4, label).is_none());
+    }
+}
+
+#[test]
+fn screw_partition_uses_full_period_and_independent_integer_congruences() {
+    use PhysicalLineKind::*;
+    let gcd = |mut a: i128, mut b: i128| {
+        a = a.abs();
+        b = b.abs();
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    };
+    let contexts = fixed_contexts_for(4);
+    assert_eq!(contexts.len(), 12);
+    let mut queries = 0;
+    for c in &contexts {
+        let e = SubgroupEmbedding::from_isotropy_subgroup(c).unwrap();
+        let g = e.subgroup_lattice().rows().rows().iter().fold(0, |g, row| {
+            assert_eq!(row[1].denominator(), 1);
+            gcd(g, row[1].numerator())
+        });
+        assert!(g > 0);
+        let a = e.representatives().iter().fold(2 * g, |a, op| {
+            let y = op.translation().get(1).checked_mul(r(2, 1)).unwrap();
+            assert_eq!(y.denominator(), 1);
+            gcd(a, y.numerator())
+        });
+        assert!(a > 0);
+        for (label, _, _, _, _, _, _) in NATIVE_SCREW_SOURCES {
+            let source = physical_line_source(4, label).unwrap();
+            let p = partition_physical_line_with_embedding(c, &e, source).unwrap();
+            assert_eq!(p.parent_collision_step(), r(1, 2));
+            assert_eq!(p.momentum_collision_step(), r(1, 2 * g));
+            assert_eq!(p.character_equivalence_step(), r(1, a));
+            assert_eq!(
+                p.boundaries()
+                    .iter()
+                    .map(|b| b.parameter)
+                    .collect::<Vec<_>>(),
+                (0..4 * g).map(|n| r(n, 2 * g)).collect::<Vec<_>>()
+            );
+            assert_eq!(p.intervals().first().unwrap().0, Rat::ZERO);
+            assert_eq!(p.intervals().last().unwrap().1, r(2, 1));
+            assert_eq!(p.boundary(&Rat::ONE).unwrap().parameter, Rat::ONE);
+            assert_eq!(p.boundary(&r(2, 1)).unwrap().parameter, Rat::ZERO);
+            let mut samples: Vec<_> = (1..=24)
+                .flat_map(|d| (-3 * d..=3 * d).map(move |n| r(n, d)))
+                .collect();
+            samples.extend([
+                r(i128::MIN, 1),
+                r(i128::MAX, 1),
+                r(i128::MAX, 2),
+                r(i128::MIN, 3),
+                r(-1, i128::MAX),
+                r(1, i128::MAX),
+                r((1_i128 << 120) - 1, 1_i128 << 120),
+                r((1_i128 << 120) + 1, 1_i128 << 120),
+            ]);
+            for b in samples {
+                // Rat is reduced: m*b is integral iff its denominator divides m.
+                // This oracle never multiplies the possibly extreme numerator.
+                let collision = (2 * g) % b.denominator() == 0;
+                let equal = a % b.denominator() == 0;
+                let expected = if equal {
+                    RepeatedCharacter
+                } else if collision {
+                    DistinctCharactersAtOneMomentum
+                } else {
+                    DistinctMomenta
+                };
+                assert_eq!(p.kind_at(&b), expected, "record{} {label} b={b}", c.ordinal);
+                if let Some(point) = p.boundary(&b) {
+                    let q = b.numerator() / b.denominator();
+                    let rem = b.numerator() % b.denominator();
+                    let floor = q - i128::from(rem < 0);
+                    assert_eq!(
+                        point.parameter.numerator() / point.parameter.denominator(),
+                        floor.rem_euclid(2)
+                    );
+                    assert_eq!(
+                        point.parent_conjugate_stars_coincide,
+                        2 % b.denominator() == 0
+                    );
+                }
+                queries += 1;
+            }
+        }
+    }
+    eprintln!(
+        "SG4 exact classification: contexts={} queries={queries}",
+        contexts.len()
+    );
+}
+
+#[test]
+fn screw_cohort_reconstructs_native_matrices_in_every_fixed_context() {
+    let contexts = fixed_contexts_for(4);
+    assert_eq!(contexts.len(), 12);
+    let mut calls = 0;
+    let mut matrices = 0;
+    for (label, pir, _, _, _, _, _) in NATIVE_SCREW_SOURCES {
+        let source = physical_line_source(4, label).unwrap();
+        for c in &contexts {
+            let e = SubgroupEmbedding::from_isotropy_subgroup(c).unwrap();
+            let partition = partition_physical_line_with_embedding(c, &e, source).unwrap();
+            let samples = [
+                r(-1, 1),
+                r(-3, 4),
+                r(-1, 2),
+                r(-1, 7),
+                r(0, 1),
+                r(1, 7),
+                r(1, 4),
+                r(1, 2),
+                r(3, 4),
+                r(1, 1),
+                r(5, 4),
+                r(3, 2),
+                r(7, 4),
+                r(2, 1),
+                r(15, 7),
+            ];
+            for b in samples {
+                let report = subduce_physical_line_with_embedding(c, &e, source, b).unwrap();
+                matrices += verify_native(&report, pir);
+                calls += 1;
+                match partition.kind_at(&b) {
+                    PhysicalLineKind::DistinctMomenta => assert_eq!(report.blocks().len(), 2),
+                    PhysicalLineKind::DistinctCharactersAtOneMomentum => {
+                        assert_eq!(report.blocks().len(), 1);
+                        assert_eq!(report.blocks()[0].targets().len(), 2);
+                        assert!(
+                            report.blocks()[0]
+                                .targets()
+                                .iter()
+                                .all(|t| t.multiplicity == 1)
+                        );
+                    }
+                    PhysicalLineKind::RepeatedCharacter => {
+                        assert_eq!(report.blocks().len(), 1);
+                        assert_eq!(report.blocks()[0].targets().len(), 1);
+                        assert_eq!(report.blocks()[0].targets()[0].multiplicity, 2);
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(calls, contexts.len() * 8 * 15);
+    eprintln!(
+        "SG4 full native reconstruction: contexts={} calls={calls} matrices={matrices}",
+        contexts.len()
+    );
+}
+
+#[test]
+fn screw_integer_and_half_integer_parent_endpoints_are_not_identified() {
+    let c = isotropy::isotropy_subgroups(4, "GM1", L::Cdml).unwrap()[0];
+    let e = SubgroupEmbedding::from_isotropy_subgroup(&c).unwrap();
+    assert_eq!(e.subgroup_sg(), 4);
+    // Raw CIR parent endpoint pairs: integer +/-, then the compound's two halves.
+    let endpoints = [
+        (54, 55, 70, 71, "Z1Z2"),
+        (58, 59, 66, 67, "E1E2"),
+        (60, 61, 64, 65, "D1D2"),
+        (68, 69, 62, 63, "C1C2"),
+    ];
+    for (index, (label, pir, _, _, _, _, negative)) in NATIVE_SCREW_SOURCES.into_iter().enumerate()
+    {
+        let source = physical_line_source(4, label).unwrap();
+        let (plus, minus, first, second, owner) = endpoints[index / 2];
+        let p = partition_physical_line_with_embedding(&c, &e, source).unwrap();
+        for n in 0..=4 {
+            let b = r(n, 2);
+            let report = subduce_physical_line_with_embedding(&c, &e, source, b).unwrap();
+            verify_native(&report, pir);
+            assert!(report.conjugate_stars_coincide());
+            let targets = report.blocks()[0].targets();
+            if n % 2 == 0 {
+                let id = if negative ^ (n / 2 % 2 == 1) {
+                    minus
+                } else {
+                    plus
+                };
+                assert_eq!(p.kind_at(&b), PhysicalLineKind::RepeatedCharacter);
+                assert_eq!(targets.len(), 1);
+                assert_eq!(
+                    (targets[0].irnumber, targets[0].multiplicity),
+                    (Some(id), 2)
+                );
+            } else {
+                assert_eq!(
+                    p.kind_at(&b),
+                    PhysicalLineKind::DistinctCharactersAtOneMomentum
+                );
+                let mut ids: Vec<_> = targets
+                    .iter()
+                    .map(|t| {
+                        assert_eq!(t.row_ml, Some(owner));
+                        assert_eq!(t.multiplicity, 1);
+                        t.irnumber.unwrap()
+                    })
+                    .collect();
+                ids.sort();
+                assert_eq!(ids, [first, second]);
+            }
+        }
+    }
 }
