@@ -4,6 +4,8 @@
 //! LD1LE1/LD2LE2,
 //! U1UA1/U2UA2, V1VA1/V2VA2 and W1WA1/W2WA2. They have transverse offsets
 //! (0,0), (1/2,1/2), (0,1/2), (1/2,0), respectively, and C2 point sign +1/-1.
+//! SG5 adds the four C-centered LD1LE1/LD2LE2 and U1UA1/U2UA2 sources,
+//! with offsets (0,0,0) and (0,0,1/2), respectively.
 //! Each has ONE actual scalar CIR (LD1/2, U1/2, V1/2, W1/2), not a stored
 //! partner row. Its physical carrier pairs that CIR at +k with its derived
 //! conjugate at -k, including the entire offset and point sign. Both component
@@ -11,10 +13,12 @@
 //! Assigning dimension two to the +k table would instead describe two copies of
 //! the same CIR and gives wrong translation/screw characters.
 //!
-//! At b in (1/2)Z the conjugate stars coincide; the two component identities are
-//! retained. This is NOT spatial little-group enhancement: both little groups
-//! are C2 for every b. In SG4 the half-beta screw characters are distinct +/-i,
-//! and the full labelled parent period is TWO rather than one.
+//! At b in (1/2)Z for SG3/4, or integer b for SG5, the conjugate parent stars
+//! coincide; the two component identities are retained. This is NOT spatial
+//! little-group enhancement: both little groups are C2 for every b. In SG4 the half-beta screw characters are distinct +/-i,
+//! and the full labelled parent period is TWO rather than one. SG5 has both
+//! momentum and labelled-character period TWO: a unit shift changes the
+//! centering character, not the C2 point sign.
 //! The result describes the continued two-dimensional carrier,
 //! including its reducible specializations, not a new endpoint irrep label.
 //!
@@ -95,10 +99,18 @@ impl PhysicalLineSource {
     }
     /// Full labelled character period in the parent, not just the momentum period.
     /// P2 has period one; the P21 screw forces period two and swaps the two
-    /// native source labels after a unit parameter shift.
+    /// native source labels after a unit parameter shift. SG5 C-centering also
+    /// forces period two, but a unit shift is NOT a point-sign/source swap.
     pub fn parent_character_period(&self) -> Rat {
-        Rat::new(if self.parent_sg() == 4 { 2 } else { 1 }, 1)
-            .expect("certified parent character period")
+        Rat::new(
+            if matches!(self.parent_sg(), 4 | 5) {
+                2
+            } else {
+                1
+            },
+            1,
+        )
+        .expect("certified parent character period")
     }
     /// Existing provenance tags keep the same CIR number on both components.
     pub const fn components(&self) -> [SubductionComponent; 2] {
@@ -403,10 +415,72 @@ static SOURCES: &[PhysicalLineSource] = &[
             operations: SG4_NEGATIVE_POINT_OPERATIONS,
         },
     },
+    // Native SG5 has the same zero-translation point representatives as SG3,
+    // but a C-centered parent lattice and distinct PIR/CIR numbers.
+    PhysicalLineSource {
+        label: "LD1LE1",
+        pir_irnumber: 79,
+        seed_irnumber: 83,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 5,
+            label: "LD1",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "LD2LE2",
+        pir_irnumber: 80,
+        seed_irnumber: 84,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (0, 1)],
+        seed: &LittleCharacterTable {
+            space_group: 5,
+            label: "LD2",
+            k_label: "LD",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "U1UA1",
+        pir_irnumber: 89,
+        seed_irnumber: 93,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 5,
+            label: "U1",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_SCALAR_POINT_OPERATIONS,
+        },
+    },
+    PhysicalLineSource {
+        label: "U2UA2",
+        pir_irnumber: 90,
+        seed_irnumber: 94,
+        dimension: 2,
+        offset: [(0, 1), (0, 1), (1, 2)],
+        seed: &LittleCharacterTable {
+            space_group: 5,
+            label: "U2",
+            k_label: "U",
+            direction: ["0", "1", "0"],
+            dimension: 1,
+            operations: SG3_NEGATIVE_POINT_OPERATIONS,
+        },
+    },
 ];
 
 /// Look up an explicitly certified physical line by its exact PIR label.
-/// The SG3 and SG4 scalar beta cohorts retain distinct PIR/CIR namespaces,
+/// The SG3, SG4 and SG5 scalar beta cohorts retain distinct PIR/CIR namespaces,
 /// their full affine offsets and native point signs.
 pub fn physical_line_source(parent_sg: u8, label: &str) -> Option<&'static PhysicalLineSource> {
     SOURCES
@@ -660,9 +734,9 @@ pub fn subduce_physical_line_with_embedding<'a>(
 
 /// The exact complex-character content of the restricted physical pair.
 ///
-/// Both components are scalar for every registered P2/P21 source. A momentum
+/// Both components are scalar for every registered P2/P21/C2 source. A momentum
 /// collision is not necessarily equality of their characters on the whole
-/// subgroup: the SG4 screw distinguishes them at quarter parameters.
+/// subgroup: an SG4 child screw can distinguish them even after collision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicalLineKind {
     /// Two different singleton child stars, each with one scalar target.
@@ -716,7 +790,7 @@ impl<'a> PhysicalLinePartition<'a> {
     pub const fn source(&self) -> &'static PhysicalLineSource {
         self.source
     }
-    /// Positive generator of the parameters where parent momenta coincide (1/2).
+    /// Positive generator of parent momentum collisions: SG3/4 have 1/2, SG5 has 1.
     pub const fn parent_collision_step(&self) -> Rat {
         self.parent_collision_step
     }
@@ -727,9 +801,10 @@ impl<'a> PhysicalLinePartition<'a> {
         self.momentum_collision_step
     }
     /// Positive generator of parameters where the two full restricted characters
-    /// agree. Twice this is their labelled full-character period. Doubled SG3
-    /// has step 1/4 (full period 1/2); SG4 has step 1/2 (full period 1), despite
-    /// the same momentum period 1/2.
+    /// agree. Twice this is their labelled full-character period. SG3-parent
+    /// records 38/39 have full-character periods 1/2 and 1, respectively, despite
+    /// their common momentum period 1/2. SG5-parent record 55 has collision step
+    /// 1/2 but character-equivalence step 1.
     pub const fn character_equivalence_step(&self) -> Rat {
         self.character_equivalence_step
     }
@@ -780,7 +855,7 @@ impl<'a> PhysicalLinePartition<'a> {
     }
 }
 
-/// Partition any certified P2/P21 scalar physical pair over its full parent period.
+/// Partition any certified P2/P21/C2 scalar physical pair over its full parent period.
 ///
 /// Here D±({R|t})=epsilon(R) exp(±2πi(k0.t+b t_y)), epsilon(R) in {1,-1}.
 /// The same real point sign cancels when comparing the two characters. Since
@@ -822,9 +897,9 @@ pub fn partition_physical_line_with_embedding<'a>(
     use super::super::line_domain as domain;
     validate_line_context(subgroup, embedding, source.seed)?;
     let period = source.parent_character_period();
-    // Certified P2/P21 sources have real scalar point coefficients and half-
-    // reciprocal transverse k0. Integer x/z translations cancel k0 from BOTH
-    // comparison equations, even when the screw has half-integral y.
+    // Certified P2/P21/C2 sources have real scalar point coefficients and
+    // half-reciprocal transverse k0. The translations below cancel k0 from
+    // BOTH comparison equations; SG5 has only a z offset and integral z.
     // This is not a general affine congruence solver.
     let direction = line_direction(source.seed)?;
     let difference = direction.checked_add(&direction)?;
@@ -836,15 +911,22 @@ pub fn partition_physical_line_with_embedding<'a>(
         }
         .into());
     }
+    // The old W73 unit-period fence is unchanged. Only these centered physical
+    // sources have a momentum period of two; bare e_y is not C reciprocal.
+    let period_direction = if source.parent_sg() == 5 {
+        difference
+    } else {
+        direction
+    };
     domain::require_reciprocal_direction(
         &parent_reciprocal,
-        &direction,
+        &period_direction,
         source.parent_sg(),
         source.label(),
     )?;
     domain::require_reciprocal_direction(
         &child_reciprocal_in_parent,
-        &direction,
+        &period_direction,
         embedding.subgroup_sg(),
         source.label(),
     )?;
@@ -859,18 +941,26 @@ pub fn partition_physical_line_with_embedding<'a>(
             .ok_or_else(missing_step)?;
     let mut character_equivalence_step = momentum_collision_step;
     for operation in embedding.representatives() {
-        // y is an additive homomorphism on this P2/P21 subgroup. Translations and
-        // one representative of each point class therefore test the entire group.
+        // y is an additive homomorphism on these twofold subgroups. Translations
+        // and one representative of each point class test the entire group.
         let y = operation.translation.get(1);
-        if operation.translation.get(0).denominator() != 1
-            || operation.translation.get(2).denominator() != 1
-            || period.numerator() % y.denominator() != 0
-        {
+        let certified_translation = if source.parent_sg() == 5 {
+            embedding
+                .parent_lattice()
+                .contains(&operation.translation)?
+        } else {
+            operation.translation.get(0).denominator() == 1
+                && operation.translation.get(2).denominator() == 1
+                && period.numerator() % y.denominator() == 0
+        };
+        if !certified_translation {
             return Err(SubductionError::DomainCensusInconsistent {
                 reason: if source.parent_sg() == 3 {
                     "physical P2 character must have parameter period one"
-                } else {
+                } else if source.parent_sg() == 4 {
                     "physical P21 requires integer transverse and half-integer axial translations"
+                } else {
+                    "physical C2 requires C-centered parent translations"
                 },
             }
             .into());

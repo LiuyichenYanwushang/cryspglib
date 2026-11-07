@@ -82,6 +82,13 @@ const NATIVE_SCREW_SOURCES: [(&str, u32, u32, &str, i128, i128, bool); 8] = [
     ("W1WA1", 72, 76, "W1", 1, 0, false),
     ("W2WA2", 73, 77, "W2", 1, 0, true),
 ];
+// Independently decoded C-centered sources; all four PIR/CIR pairs differ.
+const NATIVE_CENTERED_SOURCES: [(&str, u32, u32, &str, i128, i128, bool); 4] = [
+    ("LD1LE1", 79, 83, "LD1", 0, 0, false),
+    ("LD2LE2", 80, 84, "LD2", 0, 0, true),
+    ("U1UA1", 89, 93, "U1", 0, 1, false),
+    ("U2UA2", 90, 94, "U2", 0, 1, true),
+];
 fn native_bits(irnumber: u32) -> (i128, i128, bool) {
     NATIVE_SOURCES
         .iter()
@@ -90,6 +97,7 @@ fn native_bits(irnumber: u32) -> (i128, i128, bool) {
         .or_else(|| {
             NATIVE_SCREW_SOURCES
                 .iter()
+                .chain(NATIVE_CENTERED_SOURCES.iter())
                 .find(|s| s.1 == irnumber)
                 .map(|s| (s.4, s.5, s.6))
         })
@@ -114,6 +122,21 @@ fn native_phase(irnumber: u32, b: Rat, op: &ExactSeitz) -> C {
                 .principal_angle()
                 .to_f64();
         C::new(theta.cos(), theta.sin())
+    } else if NATIVE_CENTERED_SOURCES.iter().any(|s| s.1 == irnumber) {
+        assert!(op.rotation() == I || op.rotation() == C2);
+        let t = op.translation();
+        let twice_x = t.get(0).checked_mul(r(2, 1)).unwrap();
+        let twice_y = t.get(1).checked_mul(r(2, 1)).unwrap();
+        assert_eq!(twice_x.denominator(), 1);
+        assert_eq!(twice_y.denominator(), 1);
+        assert_eq!(t.get(2).denominator(), 1);
+        assert_eq!(
+            twice_x.numerator().rem_euclid(2),
+            twice_y.numerator().rem_euclid(2)
+        );
+        let theta =
+            std::f64::consts::TAU * b.checked_mul(t.get(1)).unwrap().principal_angle().to_f64();
+        C::new(theta.cos(), theta.sin())
     } else {
         phase(b, op)
     };
@@ -128,6 +151,7 @@ fn verify_native(report: &PhysicalLineSubduction<'_>, irnumber: u32) -> usize {
     assert_eq!(report.source().pir_irnumber(), irnumber);
     let cir = NATIVE_SCREW_SOURCES
         .iter()
+        .chain(NATIVE_CENTERED_SOURCES.iter())
         .find(|s| s.1 == irnumber)
         .map_or(irnumber, |s| s.2);
     assert_eq!(report.source().seed_irnumber(), cir);
@@ -157,7 +181,11 @@ fn verify_native(report: &PhysicalLineSubduction<'_>, irnumber: u32) -> usize {
     );
     assert_eq!(
         report.conjugate_stars_coincide(),
-        b.checked_mul(r(2, 1)).unwrap().denominator() == 1
+        if NATIVE_CENTERED_SOURCES.iter().any(|s| s.1 == irnumber) {
+            b.denominator() == 1
+        } else {
+            b.checked_mul(r(2, 1)).unwrap().denominator() == 1
+        }
     );
     let (source, reconstructed) = report.reconstruction();
     assert_eq!(source.len(), 27 * e.representatives().len());
@@ -295,7 +323,7 @@ fn physical_identity_is_one_native_seed_and_does_not_change_the_w_registry() {
         assert_eq!(op.translation, ["0"; 3]);
         assert_eq!(op.character, [1, 0]);
     }
-    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "UA1"), (5, "LD1LE1")] {
+    for (sg, label) in [(3, "LD1"), (3, "LE1"), (3, "UA1"), (6, "LD1LE1")] {
         assert!(physical_line_source(sg, label).is_none());
     }
     assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
@@ -681,7 +709,7 @@ fn affine_source_has_real_identity_and_no_incomplete_zero_offset_table() {
     assert!(zero.seed_table().is_some());
     assert!(physical_line_source(3, "U1").is_none());
     assert!(physical_line_source(3, "UA1").is_none());
-    assert!(physical_line_source(5, "U1UA1").is_none());
+    assert!(physical_line_source(6, "U1UA1").is_none());
     assert!(query::irreps_of(3).iter().all(|i| i.ml != "U1UA1"));
     assert!(line_monodromy::line_sources(3).is_empty());
     assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
@@ -885,7 +913,7 @@ fn all_scalar_beta_sources_keep_native_identity_and_genuine_zero_offset_tables()
         }
         assert!(physical_line_source(3, cir).is_none());
         assert!(physical_line_source(3, &label[cir.len()..]).is_none());
-        assert!(physical_line_source(5, label).is_none());
+        assert!(physical_line_source(6, label).is_none());
         assert!(query::irreps_of(3).iter().all(|i| i.ml != label));
     }
     for label in ["F1", "G1", "GP1GQ1"] {
@@ -1323,4 +1351,215 @@ fn screw_integer_and_half_integer_parent_endpoints_are_not_identified() {
             }
         }
     }
+}
+
+#[test]
+fn centered_sources_keep_distinct_namespaces_and_the_old_unit_period_fence() {
+    for (label, pir, cir, seed, x, z, _) in NATIVE_CENTERED_SOURCES {
+        let source = physical_line_source(5, label).unwrap();
+        assert_eq!(
+            (
+                source.parent_sg(),
+                source.label(),
+                source.pir_irnumber(),
+                source.seed_irnumber(),
+                source.seed_label()
+            ),
+            (5, label, pir, cir, seed)
+        );
+        assert_ne!(pir, cir);
+        assert_eq!(source.dimension(), 2);
+        assert_eq!(source.offset(), Vec3R::new([r(x, 2), Rat::ZERO, r(z, 2)]));
+        assert_eq!(source.direction(), Vec3R::from_ints([0, 1, 0]));
+        assert_eq!(source.parent_character_period(), r(2, 1));
+        assert_eq!(source.seed_table().is_some(), z == 0);
+        if let Some(table) = source.seed_table() {
+            assert!(matches!(
+                cryspglib::irrep::subduction::star::line_domain::parent_domain(table),
+                Err(
+                    cryspglib::irrep::subduction::SubductionError::ParameterDomainOutOfScope {
+                        sg: 5,
+                        ..
+                    }
+                )
+            ));
+        }
+        assert!(query::irreps_of(5).iter().all(|i| i.ml != label));
+    }
+    for label in [
+        "LD1", "LE1", "U1", "UA1", "V1", "V1VA1", "W1WA1", "B1", "GP1GQ1",
+    ] {
+        assert!(physical_line_source(5, label).is_none());
+    }
+    assert!(line_monodromy::line_sources(5).is_empty());
+    assert_eq!(W_LITTLE_CHARACTERS.len(), 73);
+}
+
+#[test]
+fn centered_partition_uses_reciprocal_parity_not_primitive_period_one() {
+    use PhysicalLineKind::*;
+    let gcd = |mut a: i128, mut b: i128| {
+        a = a.abs();
+        b = b.abs();
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    };
+    let contexts = fixed_contexts_for(5);
+    assert_eq!(contexts.len(), 14);
+    let mut queries = 0;
+    for c in &contexts {
+        let e = SubgroupEmbedding::from_isotropy_subgroup(c).unwrap();
+        let reciprocal = e.parent_lattice().reciprocal().unwrap();
+        assert!(!reciprocal.contains(&Vec3R::from_ints([0, 1, 0])).unwrap());
+        assert!(reciprocal.contains(&Vec3R::from_ints([0, 2, 0])).unwrap());
+        let g = e.subgroup_lattice().rows().rows().iter().fold(0, |g, row| {
+            let y = row[1].checked_mul(r(2, 1)).unwrap();
+            assert_eq!(y.denominator(), 1);
+            gcd(g, y.numerator())
+        });
+        let a = e.representatives().iter().fold(g, |a, op| {
+            let y = op.translation().get(1).checked_mul(r(2, 1)).unwrap();
+            assert_eq!(y.denominator(), 1);
+            gcd(a, y.numerator())
+        });
+        let expected = match c.ordinal {
+            55 => (2, 1),
+            54 | 59 | 60 | 62 | 63 => (2, 2),
+            52 | 53 | 56 | 57 | 58 | 61 | 64 | 65 => (1, 1),
+            _ => panic!("uncertified centered geometry"),
+        };
+        assert_eq!((g, a), expected);
+        for (label, _, _, _, _, _, _) in NATIVE_CENTERED_SOURCES {
+            let source = physical_line_source(5, label).unwrap();
+            let p = partition_physical_line_with_embedding(c, &e, source).unwrap();
+            assert_eq!(p.parent_collision_step(), Rat::ONE);
+            assert_eq!(p.momentum_collision_step(), r(1, g));
+            assert_eq!(p.character_equivalence_step(), r(1, a));
+            assert_eq!(
+                p.boundaries()
+                    .iter()
+                    .map(|b| b.parameter)
+                    .collect::<Vec<_>>(),
+                (0..2 * g).map(|n| r(n, g)).collect::<Vec<_>>()
+            );
+            assert_eq!(p.intervals().first().unwrap().0, Rat::ZERO);
+            assert_eq!(p.intervals().last().unwrap().1, r(2, 1));
+            assert_eq!(p.boundary(&Rat::ONE).unwrap().parameter, Rat::ONE);
+            assert_eq!(p.boundary(&r(2, 1)).unwrap().parameter, Rat::ZERO);
+            let mut samples: Vec<_> = (1..=24)
+                .flat_map(|d| (-3 * d..=3 * d).map(move |n| r(n, d)))
+                .collect();
+            samples.extend([
+                r(i128::MIN, 1),
+                r(i128::MAX, 1),
+                r(i128::MAX, 2),
+                r(i128::MIN, 3),
+                r(-1, i128::MAX),
+                r(1, i128::MAX),
+                r((1_i128 << 120) - 1, 1_i128 << 120),
+                r((1_i128 << 120) + 1, 1_i128 << 120),
+            ]);
+            for b in samples {
+                let expected = if a % b.denominator() == 0 {
+                    RepeatedCharacter
+                } else if g % b.denominator() == 0 {
+                    DistinctCharactersAtOneMomentum
+                } else {
+                    DistinctMomenta
+                };
+                assert_eq!(p.kind_at(&b), expected, "record{} {label} b={b}", c.ordinal);
+                if let Some(point) = p.boundary(&b) {
+                    let q = b.numerator() / b.denominator();
+                    let rem = b.numerator() % b.denominator();
+                    let floor = q - i128::from(rem < 0);
+                    assert_eq!(
+                        point.parameter.numerator() / point.parameter.denominator(),
+                        floor.rem_euclid(2)
+                    );
+                    assert_eq!(point.parent_conjugate_stars_coincide, b.denominator() == 1);
+                }
+                queries += 1;
+            }
+        }
+    }
+    assert_eq!(queries, 102592);
+    eprintln!(
+        "SG5 exact classification: contexts={} queries={queries}",
+        contexts.len()
+    );
+}
+
+#[test]
+fn centered_cohort_reconstructs_native_matrices_in_every_fixed_context() {
+    let contexts = fixed_contexts_for(5);
+    assert_eq!(contexts.len(), 14);
+    let mut calls = 0;
+    let mut matrices = 0;
+    for (label, pir, _, _, _, _, _) in NATIVE_CENTERED_SOURCES {
+        let source = physical_line_source(5, label).unwrap();
+        for c in &contexts {
+            let e = SubgroupEmbedding::from_isotropy_subgroup(c).unwrap();
+            let partition = partition_physical_line_with_embedding(c, &e, source).unwrap();
+            for b in [
+                r(-1, 1),
+                r(-3, 4),
+                r(-1, 2),
+                r(-1, 7),
+                Rat::ZERO,
+                r(1, 7),
+                r(1, 4),
+                r(1, 2),
+                r(3, 4),
+                Rat::ONE,
+                r(8, 7),
+                r(5, 4),
+                r(3, 2),
+                r(7, 4),
+                r(2, 1),
+                r(15, 7),
+            ] {
+                let report = subduce_physical_line_with_embedding(c, &e, source, b).unwrap();
+                matrices += verify_native(&report, pir);
+                calls += 1;
+                match partition.kind_at(&b) {
+                    PhysicalLineKind::DistinctMomenta => assert_eq!(report.blocks().len(), 2),
+                    PhysicalLineKind::DistinctCharactersAtOneMomentum => {
+                        assert_eq!(report.blocks().len(), 1);
+                        assert_eq!(report.blocks()[0].targets().len(), 2);
+                        assert!(
+                            report.blocks()[0]
+                                .targets()
+                                .iter()
+                                .all(|t| t.multiplicity == 1)
+                        );
+                    }
+                    PhysicalLineKind::RepeatedCharacter => {
+                        assert_eq!(report.blocks().len(), 1);
+                        assert_eq!(report.blocks()[0].targets().len(), 1);
+                        assert_eq!(report.blocks()[0].targets()[0].multiplicity, 2);
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!((calls, matrices), (896, 14720));
+    eprintln!(
+        "SG5 full native reconstruction: contexts={} calls={calls} matrices={matrices}",
+        contexts.len()
+    );
+}
+
+#[test]
+fn all_centered_boundary_cirs_and_owners_match_the_native_fixture() {
+    let sources: Vec<_> = NATIVE_CENTERED_SOURCES.iter().map(|s| (s.0, s.1)).collect();
+    assert_eq!(
+        verify_native_boundary_fixture(
+            5,
+            include_str!("physical_centered_line_boundaries.tsv"),
+            &sources,
+        ),
+        (216, 160, 696, 11480),
+    );
 }
