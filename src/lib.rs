@@ -96,6 +96,7 @@ pub mod sitesym_database;
 pub mod spacegroup;
 pub mod spg_database;
 pub mod spin;
+pub mod spin_group;
 pub mod symmetry;
 
 use crate::mathfunc::{Mat3, Mat3I, Vec3, mat_inverse_matrix_d3, mat_multiply_matrix_d3};
