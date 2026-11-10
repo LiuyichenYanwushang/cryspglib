@@ -2,9 +2,10 @@
 //! identification.
 
 use cryspglib::Crystal;
+use cryspglib::spin_group::database::collinear_spin_space_groups;
 use cryspglib::spin_group::{
     CollinearMoments, SpinSpaceGroupIdentificationError, SpinTolerances,
-    detect_collinear_spin_group, identify_collinear_spin_space_group,
+    detect_collinear_spin_group, identify_collinear_signature, identify_collinear_spin_space_group,
 };
 
 const CUBIC: [[f64; 3]; 3] = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
@@ -86,4 +87,17 @@ fn orthorhombic_afm_identifies_a_pinned_record() {
     assert_eq!(identification.record.operations.len(), 16);
     assert_eq!(identification.record.basis, "L0");
     assert_eq!(identification.international_symbol(), "P_a1m1m1m∞m1");
+}
+
+#[test]
+fn every_pinned_quotient_signature_resolves_to_itself() {
+    let mut count = 0usize;
+    for record in collinear_spin_space_groups() {
+        let identification = identify_collinear_signature(record.operations)
+            .unwrap_or_else(|error| panic!("{}: {error}", record.identifier));
+        assert_eq!(identification.number, record.number);
+        assert_eq!(identification.record.identifier, record.identifier);
+        count += 1;
+    }
+    assert_eq!(count, 1421);
 }

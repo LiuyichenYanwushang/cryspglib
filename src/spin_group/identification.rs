@@ -19,7 +19,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
 use super::collinear::CollinearAction;
-use super::database::{SpinSpaceGroupNumber, SpinSpaceGroupRecord, collinear_spin_space_groups};
+use super::database::{
+    SpinSpaceGroupNumber, SpinSpaceGroupOperation, SpinSpaceGroupRecord,
+    collinear_spin_space_groups,
+};
 use super::{CollinearSpinGroup, Mat3I, Vec3};
 
 const TRANSLATION_TOLERANCE: f64 = 1e-8;
@@ -296,6 +299,24 @@ pub fn identify_collinear_spin_space_group(
     group: &CollinearSpinGroup,
 ) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
     let signature = Signature::from_group(group)?;
+    identify_signature(&signature)
+}
+
+/// Identify a quotient signature directly.
+///
+/// This is the lower-level entry point for consumers that already hold a
+/// spatial-operation/channel signature (for example a pinned database record)
+/// rather than a detected [`CollinearSpinGroup`].  The standard-cell exact
+/// restriction and the error semantics are the same as
+/// [`identify_collinear_spin_space_group`].
+pub fn identify_collinear_signature(
+    operations: &[SpinSpaceGroupOperation],
+) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
+    let signature = Signature::new(
+        operations
+            .iter()
+            .map(|operation| (operation.rotation, operation.translation, operation.channel)),
+    )?;
     identify_signature(&signature)
 }
 

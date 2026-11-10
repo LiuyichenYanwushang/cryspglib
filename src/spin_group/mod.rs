@@ -47,7 +47,7 @@ pub use collinear::{
     detect_collinear_spin_group, validate_collinear_spin_group,
 };
 pub use identification::{
-    CollinearSsgIdentification, SpinSpaceGroupIdentificationError,
+    CollinearSsgIdentification, SpinSpaceGroupIdentificationError, identify_collinear_signature,
     identify_collinear_spin_space_group,
 };
 
