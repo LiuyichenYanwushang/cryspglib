@@ -43,6 +43,7 @@ Starting from the C source, the AI-assisted porting effort delivered:
 - No oriented magnetic axis is needed for the collinear number; global spin rotations are equivalences
 
 See the [spin-group contract](<docs/spin-group.md>).
+Rustb consumers: see the [Rustb migration guide](<docs/rustb-spin-group-migration.md>).
 The current public API implements the collinear part; coplanar/non-coplanar modes, general setting search, SU(2) phases and Hamiltonian projectors remain out of scope.
 
 ### Verified physical systems

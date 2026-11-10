@@ -55,10 +55,13 @@ for operation in group.operations() {
 主要类型：
 
 - `SpinTolerances { position, moment, direction }`：三个独立绝对容差，默认均 `1e-5`。
+  当前共线引擎把 `direction` 用作垂直磁矩残差（Cartesian 范数，与 `moment` 同量纲），
+  不是角度；共面/非共面模式以后可能赋予它方向容差语义。
 - `SpinOperation<A> { rotation, translation, action, kind }`：`rotation`/`translation` 是输入胞
   分数坐标下的空间 Seitz 部分；`action` 是序参量符号；`kind` 是幺正/反幺正。
-- `SpinGroup<A,O,M>`：只读的完整有限群。`operations()`、`atom_mappings(g)`、`product(g,h)`、
-  `inverse_index(g)`、`identity_index()`、`tolerances()`、`order()`。
+- `SpinGroup<A,O,M>`：只读的完整有限群。`len()`、`operations()`、`atom_mappings(g)`、
+  `product(g,h)`、`inverse_index(g)`、`identity_index()`、`tolerances()`；`order()` 返回
+  `&O` 序参量元数据（共线时为 `&CollinearOrder`），不是群的阶。
 - `CollinearSpinGroup = SpinGroup<CollinearAction, CollinearOrder, f64>`；
   `CollinearOrder` 提供 `signed_moments()`、`axis()`、`collinearity_residuals()`。
 - `SpinAtomMapping`：source atom → target、整数 cell shift、分数位置残差、磁矩残差。
@@ -66,7 +69,9 @@ for operation in group.operations() {
 
 `validate_collinear_spin_group(crystal, moments, target_operations, tolerances)` 接受显式的
 **完整目标操作集**，逐项验证单位、重复、全部有序乘积、两侧逆、单位/逆、结合律、原子置换、
-整数平移运输与 cocycle；不增删/不闭合/不降低容差。检测后的完整候选集也走同一验证器。
+整数平移运输与 cocycle；不增删/不闭合/不降低容差。检测路径先用同一验证器验证幺正候选集，
+再按已验证的幺正群构造反幺正半群 `gA0`；反幺正半群不是另跑一遍公开的完整集验证器，其半线性
+乘法/平方/映射由构造与独立回归测试覆盖。
 
 `CollinearMoments` 支持 `Signed(&[f64])` 和 `Vectors(&[[f64;3]])`。向量输入先检查共线残差，
 保留实际范数与符号；不能把大小不匹配藏在横向分量里。零矩原子仍参与结构映射。
@@ -113,12 +118,22 @@ t_g + W_g t_h = t_p + q(g,h) + ε(g,h)
 ## 共线 SSG 识别（标准胞精确）
 
 ```rust
+use cryspglib::Crystal;
 use cryspglib::spin_group::{
     CollinearMoments, SpinTolerances, detect_collinear_spin_group,
     identify_collinear_spin_space_group,
 };
 
-let group = detect_collinear_spin_group(&crystal, CollinearMoments::Signed(&[2., -2.]), SpinTolerances::default())?;
+let crystal = Crystal::new(
+    [[2., 0., 0.], [0., 3., 0.], [0., 0., 4.]],
+    vec![[0., 0., 0.], [0.5, 0., 0.]],
+    vec![26, 26],
+)?.with_magnetic(vec![[0., 0., 2.], [0., 0., -2.]])?;
+let group = detect_collinear_spin_group(
+    &crystal,
+    CollinearMoments::Signed(&[2., -2.]),
+    SpinTolerances::default(),
+)?;
 let identification = identify_collinear_spin_space_group(&group)?;
 assert_eq!(identification.identifier(), "47.47.2.1.L");
 assert_eq!(identification.international_symbol(), "P_a1m1m1m∞m1");

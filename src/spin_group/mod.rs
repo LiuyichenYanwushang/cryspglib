@@ -57,9 +57,13 @@ pub use identification::{
 /// Independent tolerances for spin-group structure/moment checks.
 ///
 /// `position` is a Cartesian length; `moment` is an absolute residual in the
-/// moment units; `direction` is an angular (radian) tolerance for collinearity
-/// and, later, coplanarity/spin-rotation checks.  No tolerance is borrowed
-/// from a quantity with different units.
+/// moment units; `direction` is the tolerance on the transverse
+/// (perpendicular-to-axis) moment residual used by the current collinear
+/// engine.  That residual is compared as a Cartesian vector norm, so for
+/// collinear detection `direction` has the same units as `moment`; it is not
+/// an angle in the current implementation.  Future coplanar/non-coplanar
+/// modes may interpret the same field as a directional tolerance.  No
+/// tolerance is borrowed from a quantity with different units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpinTolerances {
     pub position: f64,
