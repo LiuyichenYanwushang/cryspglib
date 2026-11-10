@@ -2,20 +2,27 @@
 //! collinear spin-space-group database.
 //!
 //! The identification is deliberately restricted to the **standard-cell
-//! exact** case: the input crystal must already be described in the database
-//! record's basis (`G0` or `L0`) and conventional cell.  No basis, origin or
-//! supercell search is performed here.  A non-standard description therefore
-//! produces [`SpinSpaceGroupIdentificationError::NoExactMatch`] rather than a
-//! silently guessed number.
+//! exact** case: the input operation data must already be expressed in the
+//! database record's basis (`G0` or `L0`) and conventional cell.  No basis or
+//! supercell search is performed here.  A frame change that genuinely changes
+//! the operation data produces
+//! [`SpinSpaceGroupIdentificationError::NoExactMatch`] rather than a silently
+//! guessed number.  Origin choices are a gauge: if they leave the operation
+//! data unchanged, they still identify the same record.
 //!
 //! The collinear order parameter is a signed scalar.  Its finite quotient is
-//! fixed by the spatial operation and the channel sign; the continuous spin
-//! rotations about the magnetic axis and the universal spin-only stabilizer are
-//! the canonical kernel and are not part of the signature.  Consequently no
-//! oriented magnetic axis is needed and a global spin rotation of the magnetic
-//! structure does not change the identified number.
+//! fixed by the spatial operation and the channel sign; the full spin-only
+//! stabilizer of the collinear order parameter (continuous rotations about the
+//! magnetic axis, axis-preserving mirrors, and the anti-unitary spin-only
+//! partner) is the canonical kernel and is not part of the signature.
+//! Consequently no oriented magnetic axis is needed and a global spin rotation
+//! of the magnetic structure does not change the identified number.
+//!
+//! Fractional translations are compared with [`DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE`]
+//! (or an explicit tolerance through the `*_with_tolerance` entry points);
+//! rotations and channel signs are compared exactly.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use super::collinear::CollinearAction;
@@ -25,8 +32,12 @@ use super::database::{
 };
 use super::{CollinearSpinGroup, Mat3I, Vec3};
 
-const TRANSLATION_TOLERANCE: f64 = 1e-8;
+/// Default fractional-translation tolerance for standard-cell exact
+/// identification.
+pub const DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE: f64 = 1e-8;
+
 const TRANSLATION_QUANTUM: f64 = 1e9;
+const NORMALIZATION_EPSILON: f64 = 1e-12;
 
 /// Result of a successful collinear spin-space-group identification.
 #[derive(Debug, Clone, Copy)]
@@ -61,10 +72,16 @@ pub enum SpinSpaceGroupIdentificationError {
     /// inconsistent or corrupted certificate.
     #[error("inconsistent channel for spatial rotation {rotation:?}")]
     InconsistentChannel { rotation: Mat3I },
-    /// No pinned record matches the signature in the input cell/frame.
+    /// A fractional translation is NaN or infinite.
+    #[error("non-finite fractional translation {value} on axis {axis}")]
+    NonFiniteTranslation { axis: usize, value: f64 },
+    /// The requested matching tolerance is not a finite value in `(0, 0.5)`.
+    #[error("invalid identification tolerance {tolerance}")]
+    InvalidTolerance { tolerance: f64 },
+    /// No pinned record matches the signature in the input frame.
     ///
-    /// This is the explicit refusal for non-standard cells, settings,
-    /// supercells and structures not covered by the pinned database.
+    /// This is the explicit refusal for genuinely non-standard cells,
+    /// settings, supercells and structures not covered by the pinned database.
     #[error(
         "no pinned collinear spin-space group matches this signature in the database standard cell; \
          the input cell/setting may be non-standard or the group is not in the pinned release"
@@ -90,9 +107,16 @@ struct Signature {
     operations: Vec<SignatureOperation>,
 }
 
+fn validate_tolerance(tolerance: f64) -> Result<(), SpinSpaceGroupIdentificationError> {
+    if !tolerance.is_finite() || tolerance <= 0.0 || tolerance >= 0.5 {
+        return Err(SpinSpaceGroupIdentificationError::InvalidTolerance { tolerance });
+    }
+    Ok(())
+}
+
 fn normalize_translation(value: f64) -> f64 {
     let mut value = value.rem_euclid(1.0);
-    if (value - 1.0).abs() < TRANSLATION_TOLERANCE || value.abs() < TRANSLATION_TOLERANCE {
+    if (value - 1.0).abs() < NORMALIZATION_EPSILON || value.abs() < NORMALIZATION_EPSILON {
         value = 0.0;
     }
     value
@@ -104,9 +128,9 @@ fn quantize_translation(value: f64) -> i64 {
 
 fn flat_rotation(rotation: Mat3I) -> [i32; 9] {
     let mut flat = [0i32; 9];
-    for row in 0..3 {
-        for column in 0..3 {
-            flat[3 * row + column] = rotation[row][column];
+    for (row, rotation_row) in rotation.iter().enumerate() {
+        for (column, value) in rotation_row.iter().enumerate() {
+            flat[3 * row + column] = *value;
         }
     }
     flat
@@ -123,11 +147,11 @@ fn operation_key(rotation: Mat3I, translation: Vec3) -> ([i32; 9], [i64; 3]) {
     )
 }
 
-fn translations_close(left: Vec3, right: Vec3) -> bool {
+fn translations_close(left: Vec3, right: Vec3, tolerance: f64) -> bool {
     (0..3).all(|axis| {
         let difference = (normalize_translation(left[axis]) - normalize_translation(right[axis]))
             .rem_euclid(1.0);
-        difference < TRANSLATION_TOLERANCE || (1.0 - difference) < TRANSLATION_TOLERANCE
+        difference < tolerance || (1.0 - difference) < tolerance
     })
 }
 
@@ -139,48 +163,62 @@ fn channel_sign(channel: CollinearAction) -> i64 {
 }
 
 impl Signature {
-    fn from_group(group: &CollinearSpinGroup) -> Result<Self, SpinSpaceGroupIdentificationError> {
+    fn from_group(
+        group: &CollinearSpinGroup,
+        tolerance: f64,
+    ) -> Result<Self, SpinSpaceGroupIdentificationError> {
         Self::new(
             group
                 .operations()
                 .iter()
                 .map(|operation| (operation.rotation, operation.translation, operation.action)),
+            tolerance,
         )
     }
 
     fn new(
         operations: impl IntoIterator<Item = (Mat3I, Vec3, CollinearAction)>,
+        tolerance: f64,
     ) -> Result<Self, SpinSpaceGroupIdentificationError> {
-        let mut table: BTreeMap<([i32; 9], [i64; 3]), SignatureOperation> = BTreeMap::new();
+        validate_tolerance(tolerance)?;
+        let mut signature: Vec<SignatureOperation> = Vec::new();
         for (rotation, translation, channel) in operations {
+            for (axis, value) in translation.into_iter().enumerate() {
+                if !value.is_finite() {
+                    return Err(SpinSpaceGroupIdentificationError::NonFiniteTranslation {
+                        axis,
+                        value,
+                    });
+                }
+            }
             let normalized = [
                 normalize_translation(translation[0]),
                 normalize_translation(translation[1]),
                 normalize_translation(translation[2]),
             ];
-            let key = operation_key(rotation, normalized);
-            match table.entry(key) {
-                std::collections::btree_map::Entry::Occupied(entry) => {
-                    if entry.get().channel != channel {
-                        return Err(SpinSpaceGroupIdentificationError::InconsistentChannel {
-                            rotation,
-                        });
-                    }
-                }
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(SignatureOperation {
+            if let Some(existing) = signature.iter_mut().find(|existing| {
+                existing.rotation == rotation
+                    && translations_close(existing.translation, normalized, tolerance)
+            }) {
+                if existing.channel != channel {
+                    return Err(SpinSpaceGroupIdentificationError::InconsistentChannel {
                         rotation,
-                        translation: normalized,
-                        channel,
                     });
                 }
+                continue;
             }
+            signature.push(SignatureOperation {
+                rotation,
+                translation: normalized,
+                channel,
+            });
         }
-        if table.is_empty() {
+        if signature.is_empty() {
             return Err(SpinSpaceGroupIdentificationError::EmptyGroup);
         }
+        signature.sort_by_key(|operation| operation_key(operation.rotation, operation.translation));
         Ok(Self {
-            operations: table.into_values().collect(),
+            operations: signature,
         })
     }
 
@@ -195,7 +233,7 @@ impl Signature {
         key
     }
 
-    fn matches_record(&self, record: &SpinSpaceGroupRecord) -> bool {
+    fn matches_record(&self, record: &SpinSpaceGroupRecord, tolerance: f64) -> bool {
         if record.operations.len() != self.operations.len() {
             return false;
         }
@@ -207,7 +245,7 @@ impl Signature {
                     continue;
                 }
                 if candidate.rotation == operation.rotation
-                    && translations_close(candidate.translation, operation.translation)
+                    && translations_close(candidate.translation, operation.translation, tolerance)
                 {
                     if candidate.channel != operation.channel {
                         return false;
@@ -227,27 +265,26 @@ impl Signature {
 
 type ExactIndex = HashMap<Vec<i64>, Vec<&'static SpinSpaceGroupRecord>>;
 
+fn record_signature(record: &SpinSpaceGroupRecord) -> Signature {
+    let mut operations: Vec<_> = record
+        .operations
+        .iter()
+        .map(|operation| SignatureOperation {
+            rotation: operation.rotation,
+            translation: operation.translation.map(normalize_translation),
+            channel: operation.channel,
+        })
+        .collect();
+    operations.sort_by_key(|operation| operation_key(operation.rotation, operation.translation));
+    Signature { operations }
+}
+
 fn exact_index() -> &'static ExactIndex {
     static INDEX: OnceLock<ExactIndex> = OnceLock::new();
     INDEX.get_or_init(|| {
         let mut index: ExactIndex = HashMap::new();
         for record in collinear_spin_space_groups() {
-            let mut operations = Vec::with_capacity(record.operations.len());
-            for operation in record.operations {
-                let normalized = [
-                    normalize_translation(operation.translation[0]),
-                    normalize_translation(operation.translation[1]),
-                    normalize_translation(operation.translation[2]),
-                ];
-                operations.push(SignatureOperation {
-                    rotation: operation.rotation,
-                    translation: normalized,
-                    channel: operation.channel,
-                });
-            }
-            operations
-                .sort_by_key(|operation| operation_key(operation.rotation, operation.translation));
-            let signature = Signature { operations };
+            let signature = record_signature(record);
             index.entry(signature.exact_key()).or_default().push(record);
         }
         index
@@ -256,12 +293,13 @@ fn exact_index() -> &'static ExactIndex {
 
 fn identify_signature(
     signature: &Signature,
+    tolerance: f64,
 ) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
     if let Some(candidates) = exact_index().get(&signature.exact_key()) {
         let matches: Vec<_> = candidates
             .iter()
             .copied()
-            .filter(|record| signature.matches_record(record))
+            .filter(|record| signature.matches_record(record, tolerance))
             .collect();
         return resolve_matches(matches);
     }
@@ -269,7 +307,7 @@ fn identify_signature(
     // Fallback for signatures whose fractional translations differ from the
     // pinned table only by sub-tolerance floating-point noise.
     let matches: Vec<_> = collinear_spin_space_groups()
-        .filter(|record| signature.matches_record(record))
+        .filter(|record| signature.matches_record(record, tolerance))
         .collect();
     resolve_matches(matches)
 }
@@ -292,14 +330,31 @@ fn resolve_matches(
 /// Identify a detected collinear spin group against the pinned database.
 ///
 /// The input group must describe a crystal already expressed in the database
-/// record's standard cell and basis; otherwise [`SpinSpaceGroupIdentificationError::NoExactMatch`]
-/// is returned.  The anti-unitary kind is not part of the quotient signature:
-/// for the same spatial operation both kinds carry the same channel sign.
+/// record's standard cell and basis; otherwise
+/// [`SpinSpaceGroupIdentificationError::NoExactMatch`] is returned.  The
+/// anti-unitary kind is not part of the quotient signature: for the same
+/// spatial operation both kinds carry the same channel sign.  Fractional
+/// translations are compared with
+/// [`DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE`]; use
+/// [`identify_collinear_spin_space_group_with_tolerance`] to override it.
 pub fn identify_collinear_spin_space_group(
     group: &CollinearSpinGroup,
 ) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
-    let signature = Signature::from_group(group)?;
-    identify_signature(&signature)
+    identify_collinear_spin_space_group_with_tolerance(
+        group,
+        DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE,
+    )
+}
+
+/// Identify a detected collinear spin group with an explicit fractional
+/// translation tolerance.
+pub fn identify_collinear_spin_space_group_with_tolerance(
+    group: &CollinearSpinGroup,
+    tolerance: f64,
+) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
+    validate_tolerance(tolerance)?;
+    let signature = Signature::from_group(group, tolerance)?;
+    identify_signature(&signature, tolerance)
 }
 
 /// Identify a quotient signature directly.
@@ -312,28 +367,46 @@ pub fn identify_collinear_spin_space_group(
 pub fn identify_collinear_signature(
     operations: &[SpinSpaceGroupOperation],
 ) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
+    identify_collinear_signature_with_tolerance(
+        operations,
+        DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE,
+    )
+}
+
+/// Identify a quotient signature with an explicit fractional-translation
+/// tolerance.
+pub fn identify_collinear_signature_with_tolerance(
+    operations: &[SpinSpaceGroupOperation],
+    tolerance: f64,
+) -> Result<CollinearSsgIdentification, SpinSpaceGroupIdentificationError> {
+    validate_tolerance(tolerance)?;
     let signature = Signature::new(
         operations
             .iter()
             .map(|operation| (operation.rotation, operation.translation, operation.channel)),
+        tolerance,
     )?;
-    identify_signature(&signature)
+    identify_signature(&signature, tolerance)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const TOLERANCE: f64 = DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE;
+
     #[test]
     fn every_pinned_signature_identifies_itself() {
         for record in collinear_spin_space_groups() {
-            let signature =
-                Signature::new(record.operations.iter().map(|operation| {
+            let signature = Signature::new(
+                record.operations.iter().map(|operation| {
                     (operation.rotation, operation.translation, operation.channel)
-                }))
-                .expect("pinned signature is valid");
-            let identification =
-                identify_signature(&signature).expect("pinned signature must identify itself");
+                }),
+                TOLERANCE,
+            )
+            .expect("pinned signature is valid");
+            let identification = identify_signature(&signature, TOLERANCE)
+                .expect("pinned signature must identify itself");
             assert_eq!(identification.number, record.number);
             assert_eq!(identification.record.identifier, record.identifier);
         }
@@ -342,7 +415,7 @@ mod tests {
     #[test]
     fn empty_signature_is_rejected() {
         assert!(matches!(
-            Signature::new(Vec::new()),
+            Signature::new(Vec::new(), TOLERANCE),
             Err(SpinSpaceGroupIdentificationError::EmptyGroup)
         ));
     }
@@ -350,14 +423,75 @@ mod tests {
     #[test]
     fn inconsistent_channel_is_rejected() {
         let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-        let result = Signature::new([
-            (identity, [0.0; 3], CollinearAction::Preserve),
-            (identity, [0.0; 3], CollinearAction::Swap),
-        ]);
+        let result = Signature::new(
+            [
+                (identity, [0.0; 3], CollinearAction::Preserve),
+                (identity, [0.0; 3], CollinearAction::Swap),
+            ],
+            TOLERANCE,
+        );
         assert!(matches!(
             result,
             Err(SpinSpaceGroupIdentificationError::InconsistentChannel { .. })
         ));
+    }
+
+    #[test]
+    fn near_duplicate_conflicting_channel_is_rejected() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let result = Signature::new(
+            [
+                (identity, [0.0; 3], CollinearAction::Preserve),
+                (identity, [5e-9, 0.0, 0.0], CollinearAction::Swap),
+            ],
+            TOLERANCE,
+        );
+        assert!(matches!(
+            result,
+            Err(SpinSpaceGroupIdentificationError::InconsistentChannel { .. })
+        ));
+    }
+
+    #[test]
+    fn same_channel_near_duplicate_collapses() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let signature = Signature::new(
+            [
+                (identity, [0.0; 3], CollinearAction::Preserve),
+                (identity, [5e-9, 0.0, 0.0], CollinearAction::Preserve),
+            ],
+            TOLERANCE,
+        )
+        .expect("near duplicate should collapse");
+        assert_eq!(signature.operations.len(), 1);
+        let identification = identify_signature(&signature, TOLERANCE).unwrap();
+        assert_eq!(identification.identifier(), "1.1.1.1.L");
+    }
+
+    #[test]
+    fn non_finite_translation_is_rejected() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let result = Signature::new(
+                [(identity, [0.0, value, 0.0], CollinearAction::Preserve)],
+                TOLERANCE,
+            );
+            assert!(matches!(
+                result,
+                Err(SpinSpaceGroupIdentificationError::NonFiniteTranslation { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn invalid_tolerance_is_rejected() {
+        for tolerance in [0.0, -1e-8, f64::NAN, f64::INFINITY, 0.5] {
+            let result = Signature::new(Vec::new(), tolerance);
+            assert!(matches!(
+                result,
+                Err(SpinSpaceGroupIdentificationError::InvalidTolerance { .. })
+            ));
+        }
     }
 
     #[test]
@@ -372,9 +506,9 @@ mod tests {
             CollinearAction::Preserve => CollinearAction::Swap,
             CollinearAction::Swap => CollinearAction::Preserve,
         };
-        let signature = Signature::new(operations).expect("valid signature");
+        let signature = Signature::new(operations, TOLERANCE).expect("valid signature");
         assert!(matches!(
-            identify_signature(&signature),
+            identify_signature(&signature, TOLERANCE),
             Err(SpinSpaceGroupIdentificationError::NoExactMatch)
         ));
     }
@@ -393,11 +527,40 @@ mod tests {
                 operation.channel,
             )
         });
-        let signature = Signature::new(operations).expect("valid signature");
+        let signature = Signature::new(operations, TOLERANCE).expect("valid signature");
         assert!(matches!(
-            identify_signature(&signature),
+            identify_signature(&signature, TOLERANCE),
             Err(SpinSpaceGroupIdentificationError::NoExactMatch)
         ));
+    }
+
+    #[test]
+    fn tolerance_can_absorb_small_noise() {
+        let record = collinear_spin_space_group_by_identifier_for_test("221.221.1.1.L");
+        let noise = 5e-8;
+        let operations: Vec<_> = record
+            .operations
+            .iter()
+            .map(|operation| {
+                (
+                    operation.rotation,
+                    [
+                        operation.translation[0] + noise,
+                        operation.translation[1] + noise,
+                        operation.translation[2] + noise,
+                    ],
+                    operation.channel,
+                )
+            })
+            .collect();
+        let default = Signature::new(operations.clone(), TOLERANCE).expect("valid signature");
+        assert!(matches!(
+            identify_signature(&default, TOLERANCE),
+            Err(SpinSpaceGroupIdentificationError::NoExactMatch)
+        ));
+        let relaxed = Signature::new(operations, 1e-7).expect("valid signature");
+        let identification = identify_signature(&relaxed, 1e-7).expect("noise is within tolerance");
+        assert_eq!(identification.identifier(), "221.221.1.1.L");
     }
 
     fn collinear_spin_space_group_by_identifier_for_test(

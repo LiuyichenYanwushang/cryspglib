@@ -47,8 +47,10 @@ pub use collinear::{
     detect_collinear_spin_group, validate_collinear_spin_group,
 };
 pub use identification::{
-    CollinearSsgIdentification, SpinSpaceGroupIdentificationError, identify_collinear_signature,
-    identify_collinear_spin_space_group,
+    CollinearSsgIdentification, DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE,
+    SpinSpaceGroupIdentificationError, identify_collinear_signature,
+    identify_collinear_signature_with_tolerance, identify_collinear_spin_space_group,
+    identify_collinear_spin_space_group_with_tolerance,
 };
 
 /// Independent tolerances for spin-group structure/moment checks.

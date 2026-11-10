@@ -2,10 +2,13 @@
 //! identification.
 
 use cryspglib::Crystal;
-use cryspglib::spin_group::database::collinear_spin_space_groups;
+use cryspglib::spin_group::database::{
+    SpinSpaceGroupOperation, collinear_spin_space_group_by_identifier, collinear_spin_space_groups,
+};
 use cryspglib::spin_group::{
-    CollinearMoments, SpinSpaceGroupIdentificationError, SpinTolerances,
-    detect_collinear_spin_group, identify_collinear_signature, identify_collinear_spin_space_group,
+    CollinearAction, CollinearMoments, SpinSpaceGroupIdentificationError, SpinTolerances,
+    detect_collinear_spin_group, identify_collinear_signature,
+    identify_collinear_signature_with_tolerance, identify_collinear_spin_space_group,
 };
 
 const CUBIC: [[f64; 3]; 3] = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
@@ -100,4 +103,72 @@ fn every_pinned_quotient_signature_resolves_to_itself() {
         count += 1;
     }
     assert_eq!(count, 1421);
+}
+
+#[test]
+fn explicit_identification_tolerance_is_tunable() {
+    let record = collinear_spin_space_group_by_identifier("221.221.1.1.L").unwrap();
+    let noise = 5e-8;
+    let operations: Vec<SpinSpaceGroupOperation> = record
+        .operations
+        .iter()
+        .map(|operation| SpinSpaceGroupOperation {
+            rotation: operation.rotation,
+            translation: operation.translation.map(|value| value + noise),
+            channel: operation.channel,
+        })
+        .collect();
+    assert!(matches!(
+        identify_collinear_signature(&operations),
+        Err(SpinSpaceGroupIdentificationError::NoExactMatch)
+    ));
+    let identification = identify_collinear_signature_with_tolerance(&operations, 1e-7).unwrap();
+    assert_eq!(identification.identifier(), "221.221.1.1.L");
+}
+
+#[test]
+fn non_finite_signature_translation_is_rejected() {
+    let mut operations = collinear_spin_space_group_by_identifier("1.1.1.1.L")
+        .unwrap()
+        .operations
+        .to_vec();
+    operations[0].translation[0] = f64::NAN;
+    assert!(matches!(
+        identify_collinear_signature(&operations),
+        Err(SpinSpaceGroupIdentificationError::NonFiniteTranslation { .. })
+    ));
+}
+
+#[test]
+fn near_duplicate_conflicting_channel_is_rejected() {
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let operations = vec![
+        SpinSpaceGroupOperation {
+            rotation: identity,
+            translation: [0.0; 3],
+            channel: CollinearAction::Preserve,
+        },
+        SpinSpaceGroupOperation {
+            rotation: identity,
+            translation: [5e-9, 0.0, 0.0],
+            channel: CollinearAction::Swap,
+        },
+    ];
+    assert!(matches!(
+        identify_collinear_signature(&operations),
+        Err(SpinSpaceGroupIdentificationError::InconsistentChannel { .. })
+    ));
+}
+
+#[test]
+fn invalid_identification_tolerance_is_rejected() {
+    let operations = collinear_spin_space_group_by_identifier("1.1.1.1.L")
+        .unwrap()
+        .operations;
+    for tolerance in [0.0, -1.0, f64::NAN, f64::INFINITY, 0.5] {
+        assert!(matches!(
+            identify_collinear_signature_with_tolerance(operations, tolerance),
+            Err(SpinSpaceGroupIdentificationError::InvalidTolerance { .. })
+        ));
+    }
 }
