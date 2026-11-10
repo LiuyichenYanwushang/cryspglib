@@ -35,9 +35,9 @@ cryspglib 分支验收并发布/推送后，改为固定的 git revision 或 cra
 | `operation.operation.rotation` | `operation.rotation` |
 | `operation.operation.translation` | `operation.translation` |
 | `operation.operation.channel_action` | `operation.action` |
-| `operation.kind.is_antiunitary()` | 不变（`spin_group::OperationKind` 仍由 crate 根导出） |
+| `operation.kind.is_antiunitary()` | 不变（类型仍是 `cryspglib::OperationKind`，由 crate 根导出） |
 | `group.with_spin_only_time_reversal()` | 不需要：新检测已含反幺正半群 |
-| `group.operations()`（返回 `impl Iterator<...Ref>`） | `group.operations()` 返回 `&[SpinOperation<CollinearAction>]`，可直接 `.iter()` |
+| 旧完整群 `CollinearSpinTimeReversalGroup::operations()` 返回 `impl Iterator<...Ref>`；旧幺正子群 `ValidatedCollinearSpinGroup::operations()` 已是切片 | 新 `CollinearSpinGroup::operations()` 统一返回 `&[SpinOperation<CollinearAction>]`，直接 `.iter()` |
 | `group.spin_only_time_reversal_index()` | 不再需要；用 `operations().iter().position(|op| op.kind.is_antiunitary())` 找代表 |
 | `CollinearSpinTolerances { position, moment, collinearity }` | `SpinTolerances { position, moment, direction }`；当前共线引擎把 `direction` 按 Cartesian 垂直磁矩残差使用（与旧 `collinearity` 同量纲，不是角度），所以数值可 1:1 对应；仍建议先核对语义再用 `SpinTolerances::default()` |
 
@@ -167,6 +167,8 @@ let group = cryspglib::spin_group::validate_collinear_spin_group(
 - 旧的“full group”测试不再调用 `.with_spin_only_time_reversal()`；检测结果直接是完整群。
 - 旧的“unitary subgroup”测试：把完整群传给新的 `symmetrize_pair_with_unitary_collinear_spin_group`，
   该方法内部过滤幺正操作；不要手工从完整群删掉反幺正操作再另造类型。
+- 同步更新 Rustb 文档注释里仍引用旧类型名（`ValidatedCollinearSpinGroup`、
+  `CollinearSpinTimeReversalGroup`、`SpinChannelAction`）的地方，避免 rustdoc 断链。
 - 断言操作数量时注意完整群是 2n；若测试只想验证幺正半群，改为
   `group.operations().iter().filter(|op| op.kind.is_unitary()).count()`。
 

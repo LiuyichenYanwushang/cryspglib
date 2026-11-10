@@ -165,7 +165,7 @@ fn invalid_identification_tolerance_is_rejected() {
     let operations = collinear_spin_space_group_by_identifier("1.1.1.1.L")
         .unwrap()
         .operations;
-    for tolerance in [0.0, -1.0, f64::NAN, f64::INFINITY, 0.5] {
+    for tolerance in [0.0, -1.0, f64::NAN, f64::INFINITY, 1.1e-2, 0.5] {
         assert!(matches!(
             identify_collinear_signature_with_tolerance(operations, tolerance),
             Err(SpinSpaceGroupIdentificationError::InvalidTolerance { .. })

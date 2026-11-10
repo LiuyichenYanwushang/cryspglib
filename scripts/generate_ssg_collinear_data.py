@@ -7,7 +7,9 @@ from each record and emits ``src/spin_group/database/ssg_collinear_data.rs``.
 The generated file records the database release id/name, the source SHA-256,
 the manifest SHA-256 and the identifier-list SHA-256.  It is deterministic:
 records are sorted by their four-index number and operations by
-(rotation, translation, channel).
+(rotation, translation, channel).  The committed table is post-processed with
+`cargo fmt`; run `cargo fmt -p cryspglib` after regeneration so a fresh checkout
+and a regenerated table stay byte-identical.
 
 This script is a data-import tool only; all acceptance checks of the generated
 table live in Rust integration tests.

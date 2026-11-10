@@ -36,6 +36,14 @@ use super::{CollinearSpinGroup, Mat3I, Vec3};
 /// identification.
 pub const DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE: f64 = 1e-8;
 
+/// Largest accepted explicit fractional-translation tolerance.
+///
+/// The explicit tolerance is meant for sub-tolerance floating-point noise, not
+/// for merging genuinely distinct fractional translations.  The pinned release
+/// has a smallest same-rotation separation of `1/3`; `1e-2` stays far below
+/// that and is exactly the bound validated by the independent final review.
+pub const MAX_COLLINEAR_IDENTIFICATION_TOLERANCE: f64 = 1e-2;
+
 const TRANSLATION_QUANTUM: f64 = 1e9;
 const NORMALIZATION_EPSILON: f64 = 1e-12;
 
@@ -75,7 +83,8 @@ pub enum SpinSpaceGroupIdentificationError {
     /// A fractional translation is NaN or infinite.
     #[error("non-finite fractional translation {value} on axis {axis}")]
     NonFiniteTranslation { axis: usize, value: f64 },
-    /// The requested matching tolerance is not a finite value in `(0, 0.5)`.
+    /// The requested matching tolerance is not a finite value in
+    /// `(0, MAX_COLLINEAR_IDENTIFICATION_TOLERANCE]`.
     #[error("invalid identification tolerance {tolerance}")]
     InvalidTolerance { tolerance: f64 },
     /// No pinned record matches the signature in the input frame.
@@ -108,7 +117,10 @@ struct Signature {
 }
 
 fn validate_tolerance(tolerance: f64) -> Result<(), SpinSpaceGroupIdentificationError> {
-    if !tolerance.is_finite() || tolerance <= 0.0 || tolerance >= 0.5 {
+    if !tolerance.is_finite()
+        || tolerance <= 0.0
+        || tolerance > MAX_COLLINEAR_IDENTIFICATION_TOLERANCE
+    {
         return Err(SpinSpaceGroupIdentificationError::InvalidTolerance { tolerance });
     }
     Ok(())
@@ -485,13 +497,33 @@ mod tests {
 
     #[test]
     fn invalid_tolerance_is_rejected() {
-        for tolerance in [0.0, -1e-8, f64::NAN, f64::INFINITY, 0.5] {
+        for tolerance in [0.0, -1e-8, f64::NAN, f64::INFINITY, 1.1e-2, 0.5] {
             let result = Signature::new(Vec::new(), tolerance);
             assert!(matches!(
                 result,
                 Err(SpinSpaceGroupIdentificationError::InvalidTolerance { .. })
             ));
         }
+    }
+
+    #[test]
+    fn explicit_tolerance_is_capped_below_operation_separation() {
+        let record = collinear_spin_space_group_by_identifier_for_test("146.146.1.1.L");
+        let signature = Signature::new(
+            record
+                .operations
+                .iter()
+                .map(|operation| (operation.rotation, operation.translation, operation.channel)),
+            MAX_COLLINEAR_IDENTIFICATION_TOLERANCE,
+        )
+        .expect("pinned signature is valid");
+        let identification = identify_signature(&signature, MAX_COLLINEAR_IDENTIFICATION_TOLERANCE)
+            .expect("the capped tolerance must stay safe");
+        assert_eq!(identification.number, record.number);
+        assert!(matches!(
+            Signature::new(Vec::new(), 1.1e-2),
+            Err(SpinSpaceGroupIdentificationError::InvalidTolerance { .. })
+        ));
     }
 
     #[test]

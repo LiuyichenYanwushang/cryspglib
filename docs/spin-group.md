@@ -26,7 +26,6 @@ API 删除，作为新模块的内部引擎保留；公开入口统一在 `crysp
 ```rust
 use cryspglib::spin_group::{
     CollinearMoments, SpinTolerances, detect_collinear_spin_group,
-    validate_collinear_spin_group,
 };
 use cryspglib::Crystal;
 
@@ -147,7 +146,10 @@ assert_eq!(identification.international_symbol(), "P_a1m1m1m∞m1");
   `(空间操作, 通道)`，`kind` 不进入签名（同一空间操作的幺正/反幺正伴带同一通道）。
 - 比较容差：分数平移默认 `DEFAULT_COLLINEAR_IDENTIFICATION_TOLERANCE = 1e-8`，可用
   `identify_collinear_spin_space_group_with_tolerance` /
-  `identify_collinear_signature_with_tolerance` 显式覆盖；旋转与通道精确比较。
+  `identify_collinear_signature_with_tolerance` 显式覆盖，但上限是
+  `MAX_COLLINEAR_IDENTIFICATION_TOLERANCE = 1e-2`；旋转与通道精确比较。显式容差只用于
+  吸收浮点噪声，必须远小于最小不同分数平移间隔（当前 release 为 `1/3`），不得用来合并真实
+  不同的操作。
 - 低层入口 `identify_collinear_signature(&[SpinSpaceGroupOperation])` 可直接匹配商签名。
 - 错误：`EmptyGroup`、`InconsistentChannel`、`NonFiniteTranslation`、`InvalidTolerance`、
   `NoExactMatch`（非标准胞/不在钉死 release）、`Ambiguous`（防御性；当前 release 签名唯一）。
@@ -164,7 +166,8 @@ Xiao et al., PRX 14, 031037 (2024) 的 1,421 共线 SSG。生成的 Rust 表只�
 ## 测试与验收
 
 Rust 验收覆盖：数据表计数/唯一性/来源 SHA、伪签名负控制、全部 1,421 条签名自识别、
-共线 FM/AFM/反铁磁/三斜等检测与验证、全局自旋旋转与原点规范、容差边界、非标准胞拒绝、
+共线 FM/AFM/C4 altermagnet、bcc/fcc 中心化群、skew-cell 数值案例、全局自旋旋转与原点规范、
+容差边界、非标准胞拒绝、
 完整群律与映射残差。每阶段另有独立子代理编写的 Rust 测试入库。
 
 ```bash
