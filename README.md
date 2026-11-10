@@ -33,16 +33,17 @@ Starting from the C source, the AI-assisted porting effort delivered:
 - Supports Type-1 (ordinary), Type-2 (grey), Type-3 (black-white / anti-rotation), Type-4 (anti-translation)
 - Atomic magnetic moments treated as axial vectors (`TensorParity::Axial`), with correct transformation under spatial inversion
 
-### No-SOC collinear spin symmetry
+### No-SOC collinear spin symmetry and SSG identification
 
-- Independent unitary `Preserve` / `Swap` channel actions, **not** MSG time reversal
-- `detect_collinear_spin_group` and strict `validate_collinear_spin_group` for complete unitary target sets
-- `.with_spin_only_time_reversal()` includes channel-preserving antiunitary `[C2_perp T||E]`, independently of `Swap`
+- Independent `Preserve` / `Swap` channel actions and an independent unitary/antiunitary `kind`, **not** MSG time reversal
+- `spin_group::detect_collinear_spin_group` / `validate_collinear_spin_group` return the full finite unitary+antiunitary group, including the channel-preserving `[C2_perp T||E]` partners
 - Original-frame atom permutations, integer cell shifts, actual residuals and group-product witnesses
-- Signed moments or checked collinear vectors with independent tolerances; no new dependencies
+- Signed scalar moments or checked collinear vectors with independent tolerances
+- Pinned 1,421-record collinear spin-space-group database (`G0.L0.k_index.map_index.L`) and standard-cell exact identification (`identify_collinear_spin_space_group`), independent of MSG
+- No oriented magnetic axis is needed for the collinear number; global spin rotations are equivalences
 
-See the [API and Rustb consumption contract](<docs/collinear-spin-group.md>).
-These are finite quotients with an explicit orbital-TR assumption for the antiunitary extension, not a complete spin-space-group/SU(2) implementation or Hamiltonian projector.
+See the [spin-group contract](<docs/spin-group.md>).
+The current public API implements the collinear part; coplanar/non-coplanar modes, general setting search, SU(2) phases and Hamiltonian projectors remain out of scope.
 
 ### Verified physical systems
 
@@ -131,6 +132,9 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number (`Result`) |
 | `HallNumber`, `UniNumber`, `SpaceGroupNumber` | Validated, non-zero database identifiers |
 | `OperationKind` | Explicit `Unitary` / `Antiunitary` magnetic-operation semantics |
+| `spin_group::detect_collinear_spin_group` | Full unitary+antiunitary collinear finite group from a crystal and moments |
+| `spin_group::database::SpinSpaceGroupNumber` | Pinned collinear SSG identifier `G0.L0.k_index.map_index.L` |
+| `spin_group::identify_collinear_spin_space_group` | Standard-cell exact collinear SSG identification |
 | `irrep::isotropy::isotropy_subgroup_for_direction(sg, label, convention, dir)` | Isotropy subgroup selected with an explicit CDML/BC convention |
 | `IsotropySubgroup::identity_subduction()` | Parent irreps that become totally symmetric in the subgroup (`SHOW FREQ [DIR]`) |
 | `isotropy::origin_shift_in_parent_conventional(sg, origin)` | Origin shift of the subgroup setting in parent conventional coordinates |

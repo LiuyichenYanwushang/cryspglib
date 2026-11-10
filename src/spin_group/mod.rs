@@ -31,10 +31,11 @@
 //! * non-coplanar — generic moments; the finite action is an `O(3)` matrix
 //!   (interface reserved).
 //!
-//! The module is the long-term home of this capability.  The older
-//! `collinear_spin` entry points are retired in a follow-up cut-over once the
-//! three categories and the oriented-spin-space-group database identification
-//! are in place; see `docs/spin-group.md`.
+//! The module is the long-term home of this capability.  The older public
+//! `collinear_spin` entry points have been retired; its proven engine is kept
+//! as a private implementation detail of [`collinear`].  Coplanar and
+//! non-coplanar modes are reserved but not implemented yet.  See
+//! `docs/spin-group.md`.
 
 use crate::OperationKind;
 use crate::mathfunc::{Mat3I, Vec3};

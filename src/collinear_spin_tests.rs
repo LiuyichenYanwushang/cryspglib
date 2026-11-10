@@ -1,8 +1,9 @@
-use cryspglib::{
+use crate::collinear_spin::{
     CollinearMoments, CollinearSpinError, CollinearSpinOperation, CollinearSpinTimeReversalGroup,
-    CollinearSpinTolerances, Crystal, OperationKind, SpinChannelAction,
-    ValidatedCollinearSpinGroup, detect_collinear_spin_group, validate_collinear_spin_group,
+    CollinearSpinTolerances, SpinChannelAction, ValidatedCollinearSpinGroup,
+    detect_collinear_spin_group, validate_collinear_spin_group,
 };
+use crate::{Crystal, OperationKind};
 use num_complex::Complex64 as C;
 use std::f64::consts::TAU;
 
@@ -947,7 +948,7 @@ fn invalid_dimensions_tolerances_lattice_positions_and_moments_are_refused() {
         Crystal::new(CUBIC, vec![], vec![]).unwrap(),
         Crystal::new(CUBIC, vec![[0.; 3]], vec![26])
             .unwrap()
-            .with_layer(cryspglib::cell::AperiodicAxis::Z),
+            .with_layer(crate::cell::AperiodicAxis::Z),
     ] {
         assert!(matches!(
             validate(&bad, &[2.], &identity),

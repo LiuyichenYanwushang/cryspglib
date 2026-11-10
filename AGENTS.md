@@ -22,6 +22,27 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 自旋群数据库与共线识别（2026-11-11；feat/spin-group）
+
+用户目标缩减为只完成共线部分；共面/非共面推迟。新公共层 `src/spin_group/` 独立于 MSG：
+`CollinearAction` 通道与 `OperationKind` 反幺正性分离，完整群含幺正半群与 `A0=[C2_perp T||E]`
+反幺正陪集；共线商签名不引入有向磁轴，全局自旋旋转是等价。
+钉死 FindSpinGroup 共线数据库 1,421 条（release id=2，source_sha256 `fcb74e80…`，manifest
+`4216cdee…`，identifier list `29fa9858…`），生成 `src/spin_group/database/ssg_collinear_data.rs`
+（29,457 条商签名操作）；公开编号 `G0.L0.k_index.map_index.L`，不是旧文档写的 `G0.L0.it.ik`
+（独立 S1 复核纠正）。标准胞精确识别 `identify_collinear_spin_space_group` /
+`identify_collinear_signature`：无 setting/basis/supercell 搜索，非匹配返回 `NoExactMatch`；
+平移容差默认 1e-8 且可显式覆盖；全部 1,421 条签名自识别通过。独立子代理复核分别给出
+S1/S2 PASS 并把独立 Rust 测试入库：
+`tests/spin_group_database_independent.rs`（9 项）与
+`tests/spin_group_identification_independent.rs`（12 项）。
+旧 `collinear_spin` 公共 API 已删除（模块转私有，26 项旧测试迁入 `src/collinear_spin_tests.rs`
+作为内部引擎回归）；README、`docs/spin-group.md` 已更新，旧 `docs/collinear-spin-group.md`
+保留为迁移 stub。当前公开共线测试：`tests/spin_group_collinear.rs` 7 项、
+`tests/spin_group_identification.rs` 10 项、database 9+9 项，另有 lib 内旧引擎回归。
+仍待 S4：全量冻结电池、最终独立复核、Rustb 迁移指南、提交/归档；一般 setting 归一化、
+共面/非共面、不可约表示/SU(2) 相位不在当前实现。未 push。
+
 ### 共线 C2T 反幺正补全（2026-11-10；基线d5218ee）
 
 用户指出常规无SOC共线模型还具有 `A0=[C2_perp T||E]`。原入口仍是幺正**子群**，不是否认该对称；

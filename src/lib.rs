@@ -53,8 +53,9 @@
 //! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` + `time_reversal` |
 //! | [`SymmetryOps`] | 对称操作集合，支持 [`SymmetryOps::from_database`] |
 //! | [`MagneticSymmetry`] | 磁空间群分析结果，实现 `Display` trait |
-//! | [`ValidatedCollinearSpinGroup`] | 独立于 MSG 的无 SOC 共线幺正子群及原子映射证书 |
-//! | [`CollinearSpinTimeReversalGroup`] | 显式包含保持通道的反幺正 `[C2_perp T||E]` 的有限商群 |
+//! | [`spin_group::CollinearSpinGroup`] | 独立于 MSG 的无 SOC 共线完整有限群（幺正 + 反幺正）及原子映射证书 |
+//! | [`spin_group::database::SpinSpaceGroupNumber`] | 钉死的共线 SSG 编号 `G0.L0.k_index.map_index.L` |
+//! | [`spin_group::identify_collinear_spin_space_group`] | 标准胞精确的共线 SSG 识别 |
 //! | [`MagneticSpaceGroupType`] | 磁空间群类型，支持返回 `Result` 的 `.from_uni()` 和 `.classify()` |
 //! | [`SpaceGroupType`] | 空间群类型信息，支持 `.from_hall()` |
 //! | [`IrMesh`] | 不可约 k 点网格 |
@@ -72,7 +73,9 @@
 pub mod api;
 pub mod arithmetic;
 pub mod cell;
-pub mod collinear_spin;
+#[allow(dead_code)]
+// proven collinear engine, now private; public entry points live in `spin_group`
+mod collinear_spin;
 pub mod debug;
 pub mod delaunay;
 pub mod determination;
@@ -111,12 +114,6 @@ pub use api::{
     BzMesh, Crystal, ExternalFields, IrMesh, OperationKind, StabilizedMesh, SymmetryAnalysis,
     SymmetryOp, SymmetryOps, dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
     grid_point_from_address, relocate_bz_grid_address, stabilized_reciprocal_mesh,
-};
-pub use collinear_spin::{
-    CollinearAtomMapping, CollinearMoments, CollinearSpinError, CollinearSpinOperation,
-    CollinearSpinOperationRef, CollinearSpinProduct, CollinearSpinTimeReversalGroup,
-    CollinearSpinTolerances, MappedCollinearSpinOperation, SpinChannelAction,
-    ValidatedCollinearSpinGroup, detect_collinear_spin_group, validate_collinear_spin_group,
 };
 pub use identifiers::{HallNumber, InvalidIdentifier, SpaceGroupNumber, UniNumber};
 pub use operation_group::{

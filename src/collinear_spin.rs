@@ -16,25 +16,25 @@
 //! or separately prove Hamiltonian covariance. Wannier gauges, orbital sewing
 //! matrices and Hamiltonian projection belong to the consuming code.
 //!
+//! This module is a private implementation detail.  The public, stable entry
+//! points live in [`crate::spin_group`]; see `docs/spin-group.md`.  The legacy
+//! unit tests below still exercise this engine directly.
+//!
 //! ```
-//! use cryspglib::{Crystal, CollinearMoments, CollinearSpinTolerances,
-//!     SpinChannelAction, detect_collinear_spin_group};
+//! use cryspglib::Crystal;
+//! use cryspglib::spin_group::{
+//!     CollinearAction, CollinearMoments, SpinTolerances, detect_collinear_spin_group,
+//! };
 //! let crystal = Crystal::new(
 //!     [[2., 0., 0.], [0., 3., 0.], [0., 0., 4.]],
 //!     vec![[0.; 3], [0.5, 0., 0.]], vec![26, 26],
 //! )?;
 //! let group = detect_collinear_spin_group(
-//!     &crystal, CollinearMoments::Signed(&[2., -2.]),
-//!     CollinearSpinTolerances::default(),
+//!     &crystal, CollinearMoments::Signed(&[2., -2.]), SpinTolerances::default(),
 //! )?;
-//! assert!(group.operations().iter().any(|g|
-//!     g.operation.channel_action == SpinChannelAction::Swap));
-//! // Ordinary no-SOC collinear model, with orbital time-reversal covariance:
-//! let full = group.with_spin_only_time_reversal();
-//! let a = full.operation(full.spin_only_time_reversal_index()).unwrap();
-//! assert!(a.kind.is_antiunitary());
-//! assert_eq!(a.operation.channel_action, SpinChannelAction::Preserve);
-//! assert_eq!(a.momentum_sign(), -1);
+//! assert!(group.operations().iter().any(|g| g.action == CollinearAction::Swap));
+//! assert!(group.operations().iter().any(|g| g.kind.is_antiunitary()));
+//! assert!(group.operations().iter().any(|g| g.kind.is_unitary()));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -1454,3 +1454,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "collinear_spin_tests.rs"]
+mod legacy_tests;
