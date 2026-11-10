@@ -41,9 +41,14 @@ use crate::mathfunc::{Mat3I, Vec3};
 
 pub mod collinear;
 pub mod database;
+pub mod identification;
 pub use collinear::{
     CollinearAction, CollinearMoments, CollinearOrder, CollinearSpinGroup,
     detect_collinear_spin_group, validate_collinear_spin_group,
+};
+pub use identification::{
+    CollinearSsgIdentification, SpinSpaceGroupIdentificationError,
+    identify_collinear_spin_space_group,
 };
 
 /// Independent tolerances for spin-group structure/moment checks.
