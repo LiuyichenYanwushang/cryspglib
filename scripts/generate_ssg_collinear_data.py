@@ -201,8 +201,8 @@ def number_parts(identifier: str):
     match = NUMBER_RE.match(identifier)
     if match is None:
         raise ValueError(f"bad identifier {identifier!r}")
-    g0, l0, it, ik, letter = match.groups()
-    return int(g0), int(l0), int(it), int(ik), letter
+    g0, l0, k_index, map_index, letter = match.groups()
+    return int(g0), int(l0), int(k_index), int(map_index), letter
 
 
 def main() -> int:
@@ -232,7 +232,7 @@ def main() -> int:
             raise SystemExit(f"{identifier}: path label mismatch")
         if document["path"]["configuration"] != "Collinear":
             raise SystemExit(f"{identifier}: not a collinear record")
-        g0, l0, it, ik, letter = number_parts(identifier)
+        g0, l0, k_index, map_index, letter = number_parts(identifier)
         signature = extract_signature(document, identifier)
         total_ops += len(signature)
         meta = document["group"]
@@ -240,8 +240,8 @@ def main() -> int:
             {
                 "g0": g0,
                 "l0": l0,
-                "it": it,
-                "ik": ik,
+                "k_index": k_index,
+                "map_index": map_index,
                 "letter": letter,
                 "identifier": identifier,
                 "international_symbol": plain_symbol(meta["international_notation"]),
@@ -265,7 +265,15 @@ def main() -> int:
             )
         signature_index[hashable] = identifier
 
-    rows.sort(key=lambda row: (row["g0"], row["l0"], row["it"], row["ik"], row["letter"]))
+    rows.sort(
+        key=lambda row: (
+            row["g0"],
+            row["l0"],
+            row["k_index"],
+            row["map_index"],
+            row["letter"],
+        )
+    )
     if len(rows) != expected and not args.allow_partial:
         raise SystemExit(f"selected records {len(rows)} != {expected}")
 
@@ -295,7 +303,7 @@ def main() -> int:
         lines.append("    SpinSpaceGroupRecord {")
         lines.append(
             "        number: SpinSpaceGroupNumber::from_parts_unchecked("
-            f"{row['g0']}, {row['l0']}, {row['it']}, {row['ik']}, b'{row['letter']}'),"
+            f"{row['g0']}, {row['l0']}, {row['k_index']}, {row['map_index']}, b'{row['letter']}'),"
         )
         lines.append(f"        identifier: {rust_string(row['identifier'])},")
         lines.append(f"        international_symbol: {rust_string(row['international_symbol'])},")

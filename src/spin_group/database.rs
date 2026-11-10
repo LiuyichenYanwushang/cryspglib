@@ -26,35 +26,36 @@ mod ssg_collinear_data;
 /// Chen-Liu four-index identifier plus the trailing letter, e.g.
 /// `221.200.1.1.L`.
 ///
-/// The four indices are `G0.L0.it.ik`; the trailing ASCII letter is the
-/// database's family letter (`L` in the current release).  Construction and
-/// parsing validate the supported ranges; display reproduces the canonical
-/// identifier exactly.
+/// The published index is `G0.L0.k_index.map_index`; the trailing ASCII
+/// letter is the database's configuration/family suffix (`L` in the current
+/// release).  The raw database `t_index` is deliberately **not** part of the
+/// public identifier.  Construction and parsing validate the supported
+/// ranges; display reproduces the canonical identifier exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SpinSpaceGroupNumber {
     g0: u16,
     l0: u16,
-    it: u16,
-    ik: u16,
+    k_index: u16,
+    map_index: u16,
     letter: u8,
 }
 
 impl SpinSpaceGroupNumber {
     /// Construct from parts, validating the database ranges.
-    pub fn new(g0: u16, l0: u16, it: u16, ik: u16, letter: char) -> Option<Self> {
+    pub fn new(g0: u16, l0: u16, k_index: u16, map_index: u16, letter: char) -> Option<Self> {
         if !(1..=230).contains(&g0)
             || !(1..=230).contains(&l0)
-            || !(1..=48).contains(&it)
-            || !(1..=8).contains(&ik)
-            || !letter.is_ascii_alphabetic()
+            || !(1..=8).contains(&k_index)
+            || !(1..=48).contains(&map_index)
+            || !letter.is_ascii_uppercase()
         {
             return None;
         }
         Some(Self {
             g0,
             l0,
-            it,
-            ik,
+            k_index,
+            map_index,
             letter: letter as u8,
         })
     }
@@ -62,10 +63,10 @@ impl SpinSpaceGroupNumber {
     /// Parse a canonical identifier such as `221.200.1.1.L`.
     pub fn parse(text: &str) -> Option<Self> {
         let mut parts = text.split('.');
-        let g0 = parts.next()?.parse::<u16>().ok()?;
-        let l0 = parts.next()?.parse::<u16>().ok()?;
-        let it = parts.next()?.parse::<u16>().ok()?;
-        let ik = parts.next()?.parse::<u16>().ok()?;
+        let g0 = parse_canonical_component(parts.next()?)?;
+        let l0 = parse_canonical_component(parts.next()?)?;
+        let k_index = parse_canonical_component(parts.next()?)?;
+        let map_index = parse_canonical_component(parts.next()?)?;
         let letter = parts.next()?;
         if parts.next().is_some() {
             return None;
@@ -75,7 +76,7 @@ impl SpinSpaceGroupNumber {
         if letters.next().is_some() {
             return None;
         }
-        Self::new(g0, l0, it, ik, letter)
+        Self::new(g0, l0, k_index, map_index, letter)
     }
 
     /// First index `G0` (parent space-group number in the database frame).
@@ -86,13 +87,13 @@ impl SpinSpaceGroupNumber {
     pub const fn l0(self) -> u16 {
         self.l0
     }
-    /// Third index `it`.
-    pub const fn it(self) -> u16 {
-        self.it
+    /// Third index `k_index` (the exporter's `k_index`/raw `ik`).
+    pub const fn k_index(self) -> u16 {
+        self.k_index
     }
-    /// Fourth index `ik`.
-    pub const fn ik(self) -> u16 {
-        self.ik
+    /// Fourth index `map_index` (the exporter's equivalent map number).
+    pub const fn map_index(self) -> u16 {
+        self.map_index
     }
     /// Trailing family letter.
     pub const fn letter(self) -> char {
@@ -102,18 +103,28 @@ impl SpinSpaceGroupNumber {
     pub(crate) const fn from_parts_unchecked(
         g0: u16,
         l0: u16,
-        it: u16,
-        ik: u16,
+        k_index: u16,
+        map_index: u16,
         letter: u8,
     ) -> Self {
         Self {
             g0,
             l0,
-            it,
-            ik,
+            k_index,
+            map_index,
             letter,
         }
     }
+}
+
+fn parse_canonical_component(text: &str) -> Option<u16> {
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    if text.len() > 1 && text.starts_with('0') {
+        return None;
+    }
+    text.parse::<u16>().ok()
 }
 
 impl core::fmt::Display for SpinSpaceGroupNumber {
@@ -121,7 +132,7 @@ impl core::fmt::Display for SpinSpaceGroupNumber {
         write!(
             formatter,
             "{}.{}.{}.{}.{}",
-            self.g0, self.l0, self.it, self.ik, self.letter as char
+            self.g0, self.l0, self.k_index, self.map_index, self.letter as char
         )
     }
 }
@@ -129,10 +140,11 @@ impl core::fmt::Display for SpinSpaceGroupNumber {
 /// One row of the collinear quotient signature: a spatial operation and the
 /// net channel action on the collinear order parameter.
 ///
-/// `translation` is a fractional translation in the database's `G0` frame,
-/// normalized to `[0, 1)`; it is stored as `f64` because the source exports
-/// use small rational translations and the identification layer compares them
-/// with the same tolerance as the group certificate.
+/// `translation` is a fractional translation in the record's own database
+/// basis frame (`G0` or `L0`; the `basis` field of the record), normalized to
+/// `[0, 1)`.  It is stored as `f64` because the source exports use small
+/// rational translations and the identification layer compares them with the
+/// same tolerance as the group certificate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpinSpaceGroupOperation {
     /// Spatial rotation `W` in `GL(3,Z)`.
@@ -166,10 +178,12 @@ pub struct SpinSpaceGroupRecord {
     pub gs: i8,
     /// Export field `gso`.
     pub gso: &'static str,
-    /// Database basis label (`G0` or `L0`) of the operation frame.
+    /// Database basis label (`G0` or `L0`) of the operation frame.  `L0`
+    /// records use the database's `L0std` setting; see the source release.
     pub basis: &'static str,
-    /// Number of operations in the source record (including continuous
-    /// generators that are not expanded into the quotient signature).
+    /// Number of discrete elements in the source record's finite quotient.
+    /// In the pinned release this equals `operations.len()`; continuous spin
+    /// generators are not expanded into rows and are not counted here.
     pub num_all_elements: u32,
     /// Quotient signature: spatial operations with their channel action.
     pub operations: &'static [SpinSpaceGroupOperation],

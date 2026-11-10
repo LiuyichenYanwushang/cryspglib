@@ -121,8 +121,8 @@ fn identifiers_are_unique_and_round_trip() {
         assert_eq!(record.number.to_string(), record.identifier);
         assert_eq!(record.number.g0(), parsed.g0());
         assert_eq!(record.number.l0(), parsed.l0());
-        assert_eq!(record.number.it(), parsed.it());
-        assert_eq!(record.number.ik(), parsed.ik());
+        assert_eq!(record.number.k_index(), parsed.k_index());
+        assert_eq!(record.number.map_index(), parsed.map_index());
         assert_eq!(record.number.letter(), parsed.letter());
     }
     assert_eq!(identifiers.len(), EXPECTED_COUNT);
@@ -142,8 +142,12 @@ fn number_parsing_rejects_malformed_input() {
         "1.231.1.1.L",
         "1.1.0.1.L",
         "1.1.49.1.L",
+        "1.1.9.1.L",
         "1.1.1.0.L",
-        "1.1.1.9.L",
+        "1.1.1.49.L",
+        "+1.1.1.1.L",
+        "01.1.1.1.L",
+        "1.1.1.1.l",
         "1.1.1.1.LL",
         "1.1.1.1.1",
         "-1.1.1.1.L",
@@ -158,6 +162,7 @@ fn number_parsing_rejects_malformed_input() {
     assert_eq!(number.to_string(), "221.200.2.1.L");
     assert!(SpinSpaceGroupNumber::new(0, 200, 2, 1, 'L').is_none());
     assert!(SpinSpaceGroupNumber::new(221, 200, 2, 1, '1').is_none());
+    assert!(SpinSpaceGroupNumber::new(221, 200, 2, 1, 'l').is_none());
 }
 
 #[test]
@@ -167,8 +172,12 @@ fn metadata_is_in_range_and_configuration_is_collinear() {
         let number = record.number;
         assert!((1..=230).contains(&number.g0()), "{}", record.identifier);
         assert!((1..=230).contains(&number.l0()), "{}", record.identifier);
-        assert!((1..=48).contains(&number.it()), "{}", record.identifier);
-        assert!((1..=8).contains(&number.ik()), "{}", record.identifier);
+        assert!((1..=8).contains(&number.k_index()), "{}", record.identifier);
+        assert!(
+            (1..=48).contains(&number.map_index()),
+            "{}",
+            record.identifier
+        );
         assert!(number.letter().is_ascii_alphabetic());
         assert_eq!(record.configuration, SpinGroupKind::Collinear);
         assert!(
@@ -185,8 +194,9 @@ fn metadata_is_in_range_and_configuration_is_collinear() {
         assert!(!record.gso.is_empty(), "{}", record.identifier);
         assert!(matches!(record.tspin, -1 | 1), "{}", record.identifier);
         assert!(matches!(record.gs, -1 | 1), "{}", record.identifier);
-        assert!(
-            record.num_all_elements as usize >= record.operations.len(),
+        assert_eq!(
+            record.num_all_elements as usize,
+            record.operations.len(),
             "{}",
             record.identifier
         );
@@ -308,9 +318,9 @@ fn lookup_by_number_and_identifier_agree() {
         assert_eq!(by_identifier.identifier, record.identifier);
         assert_eq!(by_identifier.number, record.number);
     }
-    let absent = SpinSpaceGroupNumber::new(230, 230, 48, 8, 'Z').unwrap();
+    let absent = SpinSpaceGroupNumber::new(230, 230, 8, 48, 'Z').unwrap();
     assert!(collinear_spin_space_group(absent).is_none());
-    assert!(collinear_spin_space_group_by_identifier("230.230.48.8.Z").is_none());
+    assert!(collinear_spin_space_group_by_identifier("230.230.8.48.Z").is_none());
     assert!(collinear_spin_space_group_by_identifier("not-an-identifier").is_none());
 }
 
