@@ -33,6 +33,16 @@ Starting from the C source, the AI-assisted porting effort delivered:
 - Supports Type-1 (ordinary), Type-2 (grey), Type-3 (black-white / anti-rotation), Type-4 (anti-translation)
 - Atomic magnetic moments treated as axial vectors (`TensorParity::Axial`), with correct transformation under spatial inversion
 
+### No-SOC collinear spin symmetry
+
+- Independent unitary `Preserve` / `Swap` channel actions, **not** MSG time reversal
+- `detect_collinear_spin_group` and strict `validate_collinear_spin_group` for complete target sets
+- Original-frame atom permutations, integer cell shifts, actual residuals and group-product witnesses
+- Signed moments or checked collinear vectors with independent tolerances; no new dependencies
+
+See the [API and Rustb consumption contract](<docs/collinear-spin-group.md>).
+This is a finite unitary quotient, not a complete spin-space-group/SU(2) implementation or Hamiltonian projector.
+
 ### Verified physical systems
 
 | System | Non-magnetic SG | Magnetic structure | Magnetic SG |

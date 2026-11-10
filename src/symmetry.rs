@@ -10,10 +10,10 @@ use crate::cell::{
 use crate::debug;
 use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce};
 use crate::mathfunc::{
-    Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
+    Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i_checked, mat_cast_matrix_3i_to_3d,
     mat_check_identity_matrix_i3, mat_dabs, mat_dmod1, mat_get_determinant_d3,
-    mat_get_determinant_i3, mat_get_metric, mat_get_similar_matrix_d3, mat_inverse_matrix_d3,
-    mat_is_int_matrix, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
+    mat_get_determinant_i3, mat_get_determinant_i3_wide, mat_get_metric, mat_get_similar_matrix_d3,
+    mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
     mat_multiply_matrix_vector_id3,
 };
 use crate::overlap::OverlapChecker;
@@ -837,9 +837,13 @@ fn transform_pointsymmetry(
         // 尝试获取相似矩阵，如果失败则跳过
         if let Ok(sim) = mat_get_similar_matrix_d3(&drot, &trans_mat, 0.0) {
             drot = sim;
+            // Check before mat_is_int_matrix: that legacy predicate itself
+            // rounds through i32 and would silently drop an out-of-range row.
+            let Some(rot_i) = mat_cast_matrix_3d_to_3i_checked(&drot) else {
+                return lat_sym_new; // Reject the whole search, never a saturated subset.
+            };
             if mat_is_int_matrix(&drot, mat_dabs(mat_get_determinant_d3(&trans_mat)) / 10.0) {
-                let rot_i = mat_cast_matrix_3d_to_3i(&drot);
-                if mat_get_determinant_i3(&rot_i).abs() != 1 {
+                if mat_get_determinant_i3_wide(&rot_i).abs() != 1 {
                     debug::warning_print(format_args!(
                         "spglib: A point symmetry operation is not unimodular.\n"
                     ));

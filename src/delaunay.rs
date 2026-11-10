@@ -9,7 +9,7 @@
 use crate::cell::AperiodicAxis;
 use crate::debug;
 use crate::mathfunc::{
-    Mat3, mat_cast_matrix_3d_to_3i, mat_get_determinant_d3, mat_get_determinant_i3,
+    Mat3, mat_cast_matrix_3d_to_3i_checked, mat_get_determinant_d3, mat_get_determinant_i3_wide,
     mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_norm_squared_d3,
 };
 use std::env;
@@ -125,8 +125,8 @@ fn delaunay_reduce_core(lattice: &Mat3, aperiodic_axis: i32, symprec: f64) -> Op
     // M_new = M_trans * M_orig => M_trans = M_new * M_orig^-1
     if let Ok(inv_red) = mat_inverse_matrix_d3(&red_lattice, symprec) {
         let tmp_mat = mat_multiply_matrix_d3(&inv_red, &orig_lattice);
-        let tmp_mat_int = mat_cast_matrix_3d_to_3i(&tmp_mat);
-        if mat_get_determinant_i3(&tmp_mat_int).abs() != 1 {
+        let tmp_mat_int = mat_cast_matrix_3d_to_3i_checked(&tmp_mat)?;
+        if mat_get_determinant_i3_wide(&tmp_mat_int).abs() != 1 {
             debug::info_print(format_args!(
                 "spglib: Determinant of Delaunay change of basis matrix has to be 1 or -1.\n"
             ));

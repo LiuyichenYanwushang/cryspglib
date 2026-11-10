@@ -83,6 +83,25 @@ pub fn mat_get_determinant_i3(a: &Mat3I) -> i32 {
         + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
 }
 
+/// Wide determinant for integer basis/rotation certification. Every i32 3x3
+/// determinant fits i128, including cancellation through wide intermediates.
+pub(crate) fn mat_get_determinant_i3_wide(a: &Mat3I) -> i128 {
+    let a = a.map(|row| row.map(i128::from));
+    a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+        + a[0][1] * (a[1][2] * a[2][0] - a[1][0] * a[2][2])
+        + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+}
+
+/// Reject unrepresentable basis changes instead of saturating a float cast.
+pub(crate) fn mat_cast_matrix_3d_to_3i_checked(a: &Mat3) -> Option<Mat3I> {
+    if a.iter().flatten().any(|v| {
+        !v.is_finite() || v.round() < f64::from(i32::MIN) || v.round() > f64::from(i32::MAX)
+    }) {
+        return None;
+    }
+    Some(mat_cast_matrix_3d_to_3i(a))
+}
+
 /// 计算 3x3 int 矩阵的迹 (Trace)
 #[inline]
 pub fn mat_get_trace_i3(a: &Mat3I) -> i32 {

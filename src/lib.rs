@@ -53,6 +53,7 @@
 //! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` + `time_reversal` |
 //! | [`SymmetryOps`] | 对称操作集合，支持 [`SymmetryOps::from_database`] |
 //! | [`MagneticSymmetry`] | 磁空间群分析结果，实现 `Display` trait |
+//! | [`ValidatedCollinearSpinGroup`] | 独立于 MSG 的无 SOC 共线有限幺正商群及原子映射证书 |
 //! | [`MagneticSpaceGroupType`] | 磁空间群类型，支持返回 `Result` 的 `.from_uni()` 和 `.classify()` |
 //! | [`SpaceGroupType`] | 空间群类型信息，支持 `.from_hall()` |
 //! | [`IrMesh`] | 不可约 k 点网格 |
@@ -70,6 +71,7 @@
 pub mod api;
 pub mod arithmetic;
 pub mod cell;
+pub mod collinear_spin;
 pub mod debug;
 pub mod delaunay;
 pub mod determination;
@@ -107,6 +109,11 @@ pub use api::{
     BzMesh, Crystal, ExternalFields, IrMesh, OperationKind, StabilizedMesh, SymmetryAnalysis,
     SymmetryOp, SymmetryOps, dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
     grid_point_from_address, relocate_bz_grid_address, stabilized_reciprocal_mesh,
+};
+pub use collinear_spin::{
+    CollinearAtomMapping, CollinearMoments, CollinearSpinError, CollinearSpinOperation,
+    CollinearSpinProduct, CollinearSpinTolerances, MappedCollinearSpinOperation, SpinChannelAction,
+    ValidatedCollinearSpinGroup, detect_collinear_spin_group, validate_collinear_spin_group,
 };
 pub use identifiers::{HallNumber, InvalidIdentifier, SpaceGroupNumber, UniNumber};
 pub use operation_group::{

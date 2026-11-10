@@ -22,6 +22,46 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 独立共线自旋群检测、验证与原子映射（2026-11-10；基线dcc31da）
+
+按用户本次新需求，由主agent亲自实现[独立模块](<src/collinear_spin.rs>)及根导出：
+`detect_collinear_spin_group` / `validate_collinear_spin_group` 接受原始 Crystal、Signed/Vectors 磁矩和三个独立绝对容差。
+Preserve/Swap 只是**幺正有限商群**的独立通道标记，不借用 MSG time_reversal，不随空间旋转套轴矢量规则，
+不添加复共轭或动量负号。旧 MSG/TR 语义、irrep 数据与算法均未改。完整[契约](<docs/collinear-spin-group.md>)明确
+输入胞整数平移格、连续轴向旋转、SU(2) 中心相位及 no-SOC 适用边界；**没有实现 Rustb 的轨道规范、sewing 或 H 投影**。
+
+结果只读，保留输入操作顺序和原始位置/Seitz 代表，逐原子输出 permutation、i64 cell shift、分数位置残差及有符号磁矩残差；
+乘法表保留商代表、整数 q 和实际 epsilon。验证单位、重复、全部有序乘积唯一命中、两侧逆、结合律、置换/整数运输复合与 q cocycle。
+显式目标不增删操作，发现后的完整候选也经同一验证器；不闭合或数值不可解析具型拒绝。零矩仍参与结构匹配，全零/不可辨识磁轴拒绝；
+向量先检查共线性，实际范数的舍入界进入大小比较，不能只比正负或用横向容差掩盖大小差异。
+
+数值防线包括整数/小数拆分、i128 输运、原始坐标下重建、逆矩阵 BA/Neumann 外包、最多4096周期像和歧义拒绝；
+FMA/TwoSum 外包贯穿 affine、Cartesian 距离、metric、Seitz 及向量规范化/投影/范数，无法辨别的容差临界带返回 NumericalRange。
+仅在[两个既有搜索入口](<src/delaunay.rs>)与[旋转转换](<src/symmetry.rs>)复用新增[宽 determinant/checked cast](<src/mathfunc.rs>)，
+避免候选返回前 i32 中间溢出；范围检查放在旧 mat_is_int_matrix 之前，无法完整表达旋转时全搜失败而非返回饱和子集。
+
+新增[23项公开回归](<tests/collinear_spin.rs>)及2项模块回归：FM 独立轴、半平移 AFM、带非磁 marker 的 C4 altermagnet、
+复 hopping 的消费者 toy、螺旋/换代表元、偏斜周期像与非法输入，并覆盖审计发现的大整数消去、奇异假逆、大 W/metric/Cartesian 消去及向量范数误判。
+H/P 仅是 toy oracle，不冒充生产轨道表示、全实空间 covariance 或幂等投影。
+[最终独立只读复核](<target/collinear-final-review.md>)绑定7b9e9d54实现，给出有界PASS；
+68,915项 Fraction scalar、12,000项范数、12,000项 Decimal 磁轴分量检查是独立数学探针，不冒称 Rust 二进制测试或无限输入穷尽。
+
+冻结258输入后的[核心电池](<target/r62-battery-collinear-core-v2-audit.txt.gz>)16腿/81壳/85池全部退出0：
+1,090列出 = **1,086通过/0失败 + 4历史忽略**，忽略身份不变；实际日志另核验32 doctest（含新示例）、无过滤/忽略。
+严格debug/release all-target Clippy、包fmt、暂存/工作区diff检查通过；debug新增23+2也分别在DATA512下执行。
+四组Python单元、oracle/方向串门禁及[额外W行检查](<target/collinear-pinned-other-wave-rows-final.txt.gz>)通过，后者仍73源/1,006记录/5,756行、checks_failed=0。
+三张完整普通TSV的4/8字节、原SHA和含表头行数42,074/80,294/11,010均保持。不把本核心电池称为R62专项磁Γ/物理源大cohort重跑；
+旧P4物理20入口及5,424缺口计数未变，**整个项目仍未完成**。
+
+初版独立审计的反例保留在[历史报告](<target/collinear-review-independent.md>)，均明确绑定旧哈希；最终报告只绑定修复后版本。
+实跑debug-v3曾22通过/1失败，证实范围检查在旧整数判定后会静默丢操作，前移后23/23通过。
+核心v1仅因PATH的Python3.7缺少标准库方法失败在发现阶段，未冒充验收；最终v2及子进程显式用系统Python3.10全跑。
+所有失败日志保留，未放宽门槛。单核低优先级串行，编译4096MiB/运行512MiB DATA是逐进程限制，不是总RSS，也不作并发性能结论。
+
+每腿日志/TSV即时压缩并校验。最终[93件归档回执](<target/collinear-binary-archive-receipt.json>)含5个同inode别名，
+将1,848,015,256原始逻辑字节压为180,629,643字节，逐成员字节/SHA和gzip EOF/CRC核验；
+[清理回执](<target/collinear-binary-cleanup-receipt.json>)仅删除93个逐项核对的精确生成路径。未删其它项目、push或部署。
+
 ### SG5 C心标量β物理线闭合（P4 / R62，2026-11-07；基线4891692）
 
 主agent亲自接入[四条SG5来源](<src/irrep/subduction_physical_line.rs>)：PIR79/80、89/90分别对应真实CIR83/84、93/94，
