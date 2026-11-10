@@ -40,8 +40,18 @@ S1/S2 PASS 并把独立 Rust 测试入库：
 作为内部引擎回归）；README、`docs/spin-group.md` 已更新，旧 `docs/collinear-spin-group.md`
 保留为迁移 stub。当前公开共线测试：`tests/spin_group_collinear.rs` 7 项、
 `tests/spin_group_identification.rs` 10 项、database 9+9 项，另有 lib 内旧引擎回归。
-仍待 S4：全量冻结电池、最终独立复核、Rustb 迁移指南、提交/归档；一般 setting 归一化、
-共面/非共面、不可约表示/SU(2) 相位不在当前实现。未 push。
+S4 已完成。最终全量 all-targets 电池（HEAD 8c4e1c0）exit 0：87 个 result 段、1,164 passed、
+0 failed、4 项既有历史忽略（无新增忽略）；日志 `target/battery-s4-final.log`，SHA-256
+`eb5357e8f1aa1b86911b58825ec21c7f90a79e7dd71d0dc4580976a91e62701c`。doctest 32/0，严格
+all-targets Clippy 与包 fmt 通过。最终独立复核 reviewer-s4 给出有界 PASS；其唯一 MEDIUM N1
+（显式容差 >1/3 时可合并不同操作并返回错误编号）已修复：新增 `MAX_COLLINEAR_IDENTIFICATION_TOLERANCE = 1e-2`
+及上限校验和边界测试，N2–N6 的账本/生成器 rustfmt 说明/文档小问题已处理。最终公共测试：
+`spin_group_collinear` 7、`database` 9、`database_independent` 9、`identification` 10、
+`identification_independent` 12、`cutover_independent` 8、`final_acceptance` 9；lib 内旧引擎
+`collinear_spin` 28 项（26 迁移 + 2 原有）。Rustb 迁移指南
+`docs/rustb-spin-group-migration.md` 已提交并由最终复核对照 Rustb 源码逐行核查。分支
+`feat/spin-group` 当前 HEAD 为账本提交前的 `8c4e1c0`；未 push。一般 setting 归一化、共面/
+非共面、不可约表示/SU(2) 相位、轨道 sewing/H 投影仍不在当前实现。共线目标已完成。
 
 ### 共线 C2T 反幺正补全（2026-11-10；基线d5218ee）
 
