@@ -1,10 +1,14 @@
 //! No-SOC collinear spin symmetry, independently of magnetic space groups.
 //!
-//! These are **unitary representatives of a finite quotient**, not a complete
-//! spin space group or an SU(2) representation. `Swap` can be represented by a
-//! fixed spin pi rotation perpendicular to the magnetic axis. It neither
-//! conjugates orbital matrix elements nor adds a minus sign to momentum:
-//! `k -> W^{-T} k`. Spatial rotations never rotate the independent spin axis.
+//! The base detection/validation API returns a **unitary finite quotient**, not
+//! a complete spin space group or an SU(2) representation. `Swap` is a fixed spin
+//! pi rotation perpendicular to the magnetic axis, not time reversal. Its
+//! momentum action is `k -> W^{-T} k`, without complex conjugation.
+//! [`ValidatedCollinearSpinGroup::with_spin_only_time_reversal`] includes the
+//! ordinary collinear symmetry `A=[C2_perp T||E]`: A is antiunitary but PRESERVES
+//! channels, conjugates orbital coefficients and sends `k -> -k`. Its coset gA
+//! has the same channel action as g and momentum `-W^{-T}k`. Spatial rotations
+//! never rotate the independent spin axis.
 //!
 //! The continuous rotations about that axis need not be sampled for an already
 //! block-diagonal `diag(H_up, H_down)`. SOC, external magnetic fields and orbital
@@ -25,15 +29,21 @@
 //! )?;
 //! assert!(group.operations().iter().any(|g|
 //!     g.operation.channel_action == SpinChannelAction::Swap));
+//! // Ordinary no-SOC collinear model, with orbital time-reversal covariance:
+//! let full = group.with_spin_only_time_reversal();
+//! let a = full.operation(full.spin_only_time_reversal_index()).unwrap();
+//! assert!(a.kind.is_antiunitary());
+//! assert_eq!(a.operation.channel_action, SpinChannelAction::Preserve);
+//! assert_eq!(a.momentum_sign(), -1);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::Crystal;
 use crate::cell::{Cell, TensorRank};
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_get_determinant_d3, mat_get_metric, mat_inverse_matrix_d3,
 };
 use crate::symmetry::get_lattice_symmetry;
+use crate::{Crystal, OperationKind};
 
 const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 // Above this bound f64 cannot reliably distinguish neighbouring cell shifts.
@@ -195,6 +205,107 @@ impl ValidatedCollinearSpinGroup {
     /// Per-atom perpendicular norms (zero for signed input).
     pub fn collinearity_residuals(&self) -> &[f64] {
         &self.collinearity_residuals
+    }
+
+    /// Include `A = [C2_perp T || E]`, the channel-preserving antiunitary spin
+    /// symmetry of an ordinary no-SOC collinear Hamiltonian. This explicit opt-in
+    /// asserts the absence of orbital time-reversal breaking; geometry cannot
+    /// certify that assumption or the consumer's Wannier sewing matrices.
+    ///
+    /// The unitary subgroup is retained unchanged. Its central extension by A
+    /// reuses all mappings and product witnesses without copying a doubled table.
+    pub fn with_spin_only_time_reversal(self) -> CollinearSpinTimeReversalGroup {
+        CollinearSpinTimeReversalGroup { unitary: self }
+    }
+}
+
+/// A borrowed semilinear action `g A^kappa`. The underlying unitary factor g
+/// supplies the spatial action and the TOTAL channel action: A preserves channels.
+/// `kind` is independent of Preserve/Swap and is not an MSG axial-vector rule.
+#[derive(Debug, Clone, Copy)]
+pub struct CollinearSpinOperationRef<'a> {
+    pub operation: &'a CollinearSpinOperation,
+    pub atom_mapping: &'a [CollinearAtomMapping],
+    pub kind: OperationKind,
+}
+
+impl CollinearSpinOperationRef<'_> {
+    /// Momentum is `momentum_sign() * W^{-T} k`. Only antiunitarity adds a minus.
+    pub const fn momentum_sign(self) -> i8 {
+        if self.kind.is_antiunitary() { -1 } else { 1 }
+    }
+}
+
+/// Conditional central extension `G x {1,A}` with `A=[C2_perp T||E]`.
+///
+/// A is antiunitary, preserves up/dn, and squares to +I for spin 1/2. It implies
+/// same-channel `E_sigma(k)=E_sigma(-k)`, NOT up/down or Kramers degeneracy.
+/// Other antiunitary elements can have nontrivial spinor/Bloch squares: this
+/// quotient, like G, does not encode SU(2) central phases or orbital sewing.
+///
+/// Indices `0..n` retain G's original order; `n..2*n` represent `g A` in that same
+/// order. Full-group products are derived exactly from G and antiunitary XOR;
+/// no geometric or numerical checks are weakened or repeated.
+#[derive(Debug, Clone)]
+pub struct CollinearSpinTimeReversalGroup {
+    unitary: ValidatedCollinearSpinGroup,
+}
+
+impl CollinearSpinTimeReversalGroup {
+    pub fn unitary_subgroup(&self) -> &ValidatedCollinearSpinGroup {
+        &self.unitary
+    }
+    pub fn len(&self) -> usize {
+        2 * self.unitary.operations.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.unitary.operations.is_empty()
+    }
+    pub fn identity_index(&self) -> usize {
+        self.unitary.identity_index
+    }
+    /// A's quotient representative. Original identity Seitz/mapping representatives
+    /// are retained, so this need not have literal zero translation for explicit G.
+    pub fn spin_only_time_reversal_index(&self) -> usize {
+        self.unitary.operations.len() + self.unitary.identity_index
+    }
+    pub fn operation(&self, index: usize) -> Option<CollinearSpinOperationRef<'_>> {
+        if index >= self.len() {
+            return None;
+        }
+        let n = self.unitary.operations.len();
+        let mapped = &self.unitary.operations[index % n];
+        Some(CollinearSpinOperationRef {
+            operation: &mapped.operation,
+            atom_mapping: &mapped.atom_mapping,
+            kind: if index < n {
+                OperationKind::Unitary
+            } else {
+                OperationKind::Antiunitary
+            },
+        })
+    }
+    pub fn operations(&self) -> impl ExactSizeIterator<Item = CollinearSpinOperationRef<'_>> {
+        (0..self.len()).map(|i| self.operation(i).expect("index in the validated extension"))
+    }
+    /// First right, then left. Antiunitarity conjugates orbital coefficients,
+    /// not the REAL spatial W,t, integer cell shifts, or channel signs.
+    pub fn product(&self, left: usize, right: usize) -> Option<CollinearSpinProduct> {
+        let kind = self
+            .operation(left)?
+            .kind
+            .compose(self.operation(right)?.kind);
+        let n = self.unitary.operations.len();
+        let mut product = self.unitary.multiplication_table[left % n][right % n];
+        if kind.is_antiunitary() {
+            product.operation_index += n;
+        }
+        Some(product)
+    }
+    pub fn inverse_index(&self, index: usize) -> Option<usize> {
+        let kind = self.operation(index)?.kind;
+        let n = self.unitary.operations.len();
+        Some(self.unitary.inverse_indices[index % n] + if kind.is_antiunitary() { n } else { 0 })
     }
 }
 

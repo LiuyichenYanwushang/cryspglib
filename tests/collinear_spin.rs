@@ -1,7 +1,7 @@
 use cryspglib::{
-    CollinearMoments, CollinearSpinError, CollinearSpinOperation, CollinearSpinTolerances, Crystal,
-    SpinChannelAction, ValidatedCollinearSpinGroup, detect_collinear_spin_group,
-    validate_collinear_spin_group,
+    CollinearMoments, CollinearSpinError, CollinearSpinOperation, CollinearSpinTimeReversalGroup,
+    CollinearSpinTolerances, Crystal, OperationKind, SpinChannelAction,
+    ValidatedCollinearSpinGroup, detect_collinear_spin_group, validate_collinear_spin_group,
 };
 use num_complex::Complex64 as C;
 use std::f64::consts::TAU;
@@ -258,6 +258,151 @@ fn altermagnet_rotation_swaps_but_does_not_force_same_k_degeneracy() {
     check_certificate(&crystal, &group);
 }
 
+fn check_time_reversal_extension(full: &CollinearSpinTimeReversalGroup) {
+    let base = full.unitary_subgroup();
+    let n = base.operations().len();
+    assert_eq!(full.len(), 2 * n);
+    assert!(!full.is_empty());
+    assert_eq!(full.operations().len(), full.len());
+    assert!(full.operation(full.len()).is_none());
+    assert!(full.operation(usize::MAX).is_none());
+    assert!(full.inverse_index(usize::MAX).is_none());
+    assert!(full.product(usize::MAX, 0).is_none());
+    assert!(full.product(0, full.len()).is_none());
+    for (g, op) in full.operations().enumerate() {
+        assert_eq!(op.kind.is_antiunitary(), g >= n);
+        assert_eq!(op.momentum_sign(), if g >= n { -1 } else { 1 });
+        assert!(std::ptr::eq(
+            op.operation,
+            &base.operations()[g % n].operation
+        ));
+        assert!(std::ptr::eq(
+            op.atom_mapping,
+            base.operations()[g % n].atom_mapping.as_slice()
+        ));
+        let inverse = full.inverse_index(g).unwrap();
+        assert_eq!(
+            full.product(g, inverse).unwrap().operation_index,
+            full.identity_index()
+        );
+        assert_eq!(
+            full.product(inverse, g).unwrap().operation_index,
+            full.identity_index()
+        );
+        for (h, right) in full.operations().enumerate() {
+            let gh = full.product(g, h).unwrap();
+            let expected = base.multiplication_table()[g % n][h % n];
+            assert_eq!(
+                gh.operation_index,
+                expected.operation_index + if (g >= n) ^ (h >= n) { n } else { 0 }
+            );
+            assert_eq!(gh.cell_shift, expected.cell_shift);
+            assert_eq!(gh.translation_residual, expected.translation_residual);
+            let result = full.operation(gh.operation_index).unwrap();
+            assert_eq!(
+                result.operation.channel_action.sign(),
+                op.operation.channel_action.sign() * right.operation.channel_action.sign()
+            );
+            for k in 0..full.len() {
+                let hk = full.product(h, k).unwrap();
+                let lhs = full.product(gh.operation_index, k).unwrap();
+                let rhs = full.product(g, hk.operation_index).unwrap();
+                assert_eq!(lhs.operation_index, rhs.operation_index);
+                for a in 0..3 {
+                    assert_eq!(
+                        gh.cell_shift[a] + lhs.cell_shift[a],
+                        rhs.cell_shift[a]
+                            + (0..3)
+                                .map(|b| i64::from(op.operation.rotation[a][b]) * hk.cell_shift[b])
+                                .sum::<i64>()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn spin_only_c2t_preserves_ferromagnetic_channels_without_kramers_degeneracy() {
+    let crystal = Crystal::new(CUBIC, vec![[0.; 3]], vec![26]).unwrap();
+    let unitary = detect_collinear_spin_group(
+        &crystal,
+        CollinearMoments::Signed(&[2.]),
+        Default::default(),
+    )
+    .unwrap();
+    check_certificate(&crystal, &unitary);
+    let full = unitary.with_spin_only_time_reversal();
+    check_time_reversal_extension(&full); // Includes the noncommuting cubic spatial group.
+    let index = full.spin_only_time_reversal_index();
+    let a = full.operation(index).unwrap();
+    assert_eq!(a.kind, OperationKind::Antiunitary);
+    assert_eq!(*a.operation, CollinearSpinOperation::identity());
+    assert!(
+        full.operations()
+            .all(|op| op.operation.channel_action == SpinChannelAction::Preserve)
+    );
+    let square = full.product(index, index).unwrap();
+    assert_eq!(square.operation_index, full.identity_index());
+    assert_eq!(square.cell_shift, [0; 3]);
+    assert_eq!(square.translation_residual, [0.; 3]);
+    let energy =
+        |k: [f64; 3], spin: f64| k.into_iter().map(|v| (TAU * v).cos()).sum::<f64>() + 2. * spin;
+    let k = [0.17, 0.31, 0.23];
+    for spin in [-1., 1.] {
+        close(energy(k, spin), energy(k.map(|v| -v), spin));
+    }
+    close(energy(k, 1.) - energy(k, -1.), 4.); // No same-k up/down or Kramers degeneracy.
+}
+
+#[test]
+fn c2t_extension_preserves_full_shift_cocycles_and_noncanonical_identity_representatives() {
+    let crystal = Crystal::new(ORTHO, vec![[2., 0., 0.], [-2.5, 0., 0.]], vec![26, 26]).unwrap();
+    let ops = [
+        half_swap(),
+        operation(I, [2., 0., 0.], SpinChannelAction::Preserve),
+    ];
+    let unitary = validate(&crystal, &[2., -2.], &ops).unwrap();
+    check_certificate(&crystal, &unitary);
+    let full = unitary.with_spin_only_time_reversal();
+    check_time_reversal_extension(&full);
+    assert_eq!(full.identity_index(), 1);
+    assert_eq!(full.spin_only_time_reversal_index(), 3);
+    for (index, kind, channel) in [
+        (0, OperationKind::Unitary, SpinChannelAction::Swap),
+        (1, OperationKind::Unitary, SpinChannelAction::Preserve),
+        (2, OperationKind::Antiunitary, SpinChannelAction::Swap),
+        (3, OperationKind::Antiunitary, SpinChannelAction::Preserve),
+    ] {
+        let op = full.operation(index).unwrap();
+        assert_eq!(op.kind, kind);
+        assert_eq!(op.operation.channel_action, channel);
+    }
+    assert_eq!(full.product(2, 2).unwrap().cell_shift, [-1, 0, 0]);
+    // Identity-class representatives remain ORIGINAL, not secretly normalized.
+    let one = Crystal::new(CUBIC, vec![[0.; 3]], vec![26]).unwrap();
+    let shifted = validate(
+        &one,
+        &[2.],
+        &[operation(
+            I,
+            [2. + 1e-6, 0., 0.],
+            SpinChannelAction::Preserve,
+        )],
+    )
+    .unwrap()
+    .with_spin_only_time_reversal();
+    check_time_reversal_extension(&shifted);
+    let square = shifted
+        .product(
+            shifted.spin_only_time_reversal_index(),
+            shifted.spin_only_time_reversal_index(),
+        )
+        .unwrap();
+    assert_eq!(square.cell_shift, [2, 0, 0]);
+    close(square.translation_residual[0], 1e-6);
+}
+
 type M2 = [[C; 2]; 2];
 fn multiply(a: M2, b: M2) -> M2 {
     std::array::from_fn(|i| std::array::from_fn(|j| (0..2).map(|k| a[i][k] * b[k][j]).sum()))
@@ -274,6 +419,89 @@ fn hopping_blocks(k: f64) -> [M2; 2] {
         [[C::new(odd + 1., 0.), f], [f.conj(), C::new(odd - 1., 0.)]],
         [[C::new(odd - 1., 0.), f], [f.conj(), C::new(odd + 1., 0.)]],
     ]
+}
+
+#[test]
+fn c2t_semilinear_sewing_keeps_complex_bloch_hopping_and_spinor_squares_distinct() {
+    let full = validate(
+        &afm(),
+        &[2., -2.],
+        &[CollinearSpinOperation::identity(), half_swap()],
+    )
+    .unwrap()
+    .with_spin_only_time_reversal();
+    assert_eq!(full.operation(2).unwrap().kind, OperationKind::Antiunitary);
+    assert_eq!(
+        full.operation(2).unwrap().operation.channel_action,
+        SpinChannelAction::Preserve
+    );
+    assert_eq!(
+        full.operation(3).unwrap().operation.channel_action,
+        SpinChannelAction::Swap
+    );
+    let z = C::new(0., 0.);
+    let o = C::new(1., 0.);
+    let eye = [[o, z], [z, o]];
+    let conjugate = |a: M2| a.map(|row| row.map(|v| v.conj()));
+    let difference = |a: M2, b: M2| {
+        a.into_iter()
+            .flatten()
+            .zip(b.into_iter().flatten())
+            .map(|(x, y)| (x - y).norm())
+            .fold(0_f64, f64::max)
+    };
+    let j = [[z, -o], [o, z]]; // Fixed C2_perp spin lift -i sigma_y (real).
+    let theta = [[z, o], [-o, z]]; // Physical T = (i sigma_y) K.
+    let a0 = multiply(j, theta); // A0 = C2_perp T = K in this spin basis.
+    assert!(difference(a0, eye) < 1e-10);
+    assert!(difference(multiply(a0, conjugate(a0)), eye) < 1e-10);
+    let minus_eye = eye.map(|row| row.map(|v| -v));
+    assert!(difference(multiply(theta, conjugate(theta)), minus_eye) < 1e-10);
+    assert!(difference(multiply(j, j), minus_eye) < 1e-10);
+    // Real-space hopping amplitudes are REAL; Bloch off-diagonal entries need not be.
+    let blocks = |k: f64| {
+        let f = o + C::from_polar(1., -TAU * k);
+        [[[o, f], [f.conj(), -o]], [[-o, f], [f.conj(), o]]]
+    };
+    // P(k) denotes the sewing coefficient at its INPUT k.
+    let p = |k: f64| [[z, C::from_polar(1., -TAU * k)], [o, z]];
+    for k in [0.13, 0.25, -0.31] {
+        let here = blocks(k);
+        let there = blocks(-k);
+        assert!(difference(here[0], conjugate(here[0])) > 0.1); // Do NOT realify H(k).
+        for spin in 0..2 {
+            assert!(difference(here[spin], adjoint(here[spin])) < 1e-10);
+            assert!(difference(there[spin], conjugate(here[spin])) < 1e-10); // A0 preserves spin.
+            assert!(
+                difference(
+                    multiply(multiply(p(k), here[spin]), adjoint(p(k))),
+                    here[1 - spin]
+                ) < 1e-10
+            );
+            // g A0 first reverses k, so its orbital coefficient is P(-k), not P(k).
+            let anti = multiply(multiply(p(-k), conjugate(here[spin])), adjoint(p(-k)));
+            assert!(difference(anti, there[1 - spin]) < 1e-10);
+            let wrong = multiply(multiply(p(k), conjugate(here[spin])), adjoint(p(k)));
+            assert!(difference(wrong, there[1 - spin]) > 0.1);
+        }
+        let orbital_square = multiply(p(k), conjugate(p(-k)));
+        let x = C::from_polar(1., -TAU * k);
+        assert!(difference(orbital_square, eye.map(|row| row.map(|v| x * v))) < 1e-10);
+        // With the spin factor j^2=-I this anti-Swap squares to -exp(-ik q),
+        // although its QUOTIENT product is the unitary identity with q=one cell.
+        assert_eq!(full.product(3, 3).unwrap().cell_shift, [1, 0, 0]);
+        // The old unitary-only toy has an odd trace: its geometry cannot certify A0.
+        assert!(difference(hopping_blocks(-k)[0], conjugate(hopping_blocks(k)[0])) > 0.1);
+    }
+    for (k, expected) in [(0., -o), (0.5, o)] {
+        let square = multiply(p(k), conjugate(p(-k)));
+        assert!(
+            difference(
+                square.map(|row| row.map(|v| -v)),
+                eye.map(|row| row.map(|v| expected * v))
+            ) < 1e-10
+        );
+    }
 }
 
 #[test]

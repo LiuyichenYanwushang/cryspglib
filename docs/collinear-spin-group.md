@@ -1,8 +1,10 @@
-# 无 SOC 共线自旋群：有限幺正商群
+# 无 SOC 共线自旋群：幺正子群与 C2T 反幺正扩展
 
-本接口独立于 MSG，不改动 `SymmetryOp.time_reversal`、`OperationKind`、旧磁操作搜索或磁群数据库。
-`SpinChannelAction::Swap` 表示独立的自旋 π 旋转代表元，**不是时间反演**。所有新操作均幺正：
-交换 up/dn 不共轭轨道矩阵，动量为 `W^{-T} k`，没有额外负号。
+本接口独立于 MSG，不改动 `SymmetryOp.time_reversal`、旧磁操作搜索或磁群数据库。
+`detect_collinear_spin_group` / `validate_collinear_spin_group` 保留原来的**幺正子群 G**语义。
+`SpinChannelAction::Swap` 是独立的自旋 π 旋转代表元，**不是时间反演**：它不共轭轨道矩阵，
+动量为 `W^{-T} k`。常规无 SOC 共线模型还应使用 `group.with_spin_only_time_reversal()`，
+加入 `A0=[C2_perp T||E]`；它保持 up/dn、反幺正且 `k -> -k`，不能与 Swap 混为一谈。
 
 ## 范围与非目标
 
@@ -49,6 +51,16 @@ let group = validate_collinear_spin_group(
 let square = group.multiplication_table()[1][1];
 assert_eq!(square.operation_index, group.identity_index());
 assert_eq!(square.cell_shift, [1, 0, 0]);
+
+// 普通无 SOC 共线模型：调用者保证不存在轨道时间反演破缺。
+let full = group.with_spin_only_time_reversal();
+let a0_index = full.spin_only_time_reversal_index();
+let a0 = full.operation(a0_index).unwrap();
+assert!(a0.kind.is_antiunitary());
+assert_eq!(a0.operation.channel_action, SpinChannelAction::Preserve);
+assert_eq!(a0.momentum_sign(), -1);
+assert_eq!(full.product(a0_index, a0_index).unwrap().operation_index,
+    full.identity_index());
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -152,6 +164,47 @@ q(g,h) + q(gh,k) = W_g q(h,k) + q(g,hk)
 认证成本为 `O(|G|^3 + |G|^2 N + |G| N^2)`（每个几何匹配另受像枚举预算约束）；
 不为一般超大超胞引入额外索引/并行框架。非有限值、奇异胞、非法长度/容差在搜索之前拒绝。
 
+## 必须考虑的自旋专属反幺正 A0
+
+磁轴取 z，选择统一的垂直自旋转动 `J=C2_y=-i sigma_y` 和物理时间反演
+`T=i sigma_y K`。在这个自旋基中 `A0=J T=K`：T 和 J 各翻转一次磁轴，故总通道
+**Preserve**，但仍反幺正。`A0²=+I`，不是物理电子 `T²=-I`，不能由 A0 推出 Kramers 简并，
+也不强迫同一 k 的 up/dn 简并；它约束同通道 `E_sigma(k)=E_sigma(-k)`。
+
+常规无 SOC、无轨道时间反演破缺的共线模型具有 A0。这里显式 opt-in，而不是声称单凭原子/磁矩
+就能认证实际 Hamiltonian：有 SOC、轨道磁场/磁通、轨道电流或其它轨道 TR 破缺时，需另证或不用此扩展。
+复数 hopping 本身不等于 TR 破缺：实空间的实 hopping 经 Bloch 变换也通常给复矩阵。
+
+`with_spin_only_time_reversal(self)` 不复制映射或展开四倍表，而是拥有原证书，给出有限商群
+`G x {1,A0}` 的只读视图 `CollinearSpinTimeReversalGroup`。令 n=|G|：
+
+- `0..n` 保留原幺正顺序；`n..2n` 按同序表示 `g A0`。
+- `operation(i)` 返回 `CollinearSpinOperationRef`：原空间/总通道操作、共享 atom mapping、独立 `OperationKind`。
+  此处只复用该枚举的幺正/反幺正类别，**不等同于把操作转换成 MSG 的 primed Seitz**。
+- 总通道仍是 `eta_g`，`kind` 决定是否共轭和额外动量负号。所有四种 Preserve/Swap × unitary/anti 可出现。
+- `product(g,h)`、`inverse_index(g)` 返回完整群索引（越界为 None）。乘积复用基表的 q/epsilon，anti 位 XOR；
+  因为空间 W、t、位移整数与 eta 都是实的，**不因反幺正而把它们取负**。
+- `spin_only_time_reversal_index()=n+identity_index()` 是 A0 的商类代表。原单位代表可能带整数平移
+  或容差内 epsilon，返回的空间平移/映射仍保留原样；不能假定该代表平方的 q/epsilon 必为零。
+
+此直积仅指当前**有限商群**：选定的实 spin 代表 I/J 与 A0 对易，但完整连续核并不与它对易：
+`A0 U_z(phi) A0^{-1}=U_z(-phi)`。没有将完整 spin-space group 或 SU(2) lift 称为直积。
+J²=-I 的自旋子中心和 q 的 Bloch 相位仍需轨道/自旋 sewing 单独保留；其它反幺正商类 order=2
+不代表其自旋子作用平方 +I。例如半平移 Swap 的反幺正伙伴可平方为 `-exp(-ik.q)`。
+
+在共同实轨道规范中，A0 的轨道 sewing 可选 I，于是 `H_sigma(-k)=H_sigma(k)*`；
+**不是**要求 `H_sigma(k)` 在每个 k 都是实矩阵。任意 Wannier 规范一般需独立的 `Q0,sigma(k)`：
+
+```text
+H_sigma(-k) = Q0,sigma(k) H_sigma(k)* Q0,sigma(k)^dagger
+Q0,sigma(-k) Q0,sigma(k)* = I
+```
+
+若 `P_g(k)` 定义为幺正 g 在**输入 k**的 sewing，`g A0` 先反转 k，其系数为
+`P_g(-k) Q0(k)`（相应自旋通道索引也须匹配），不是直接复用 `P_g(k)`。
+正回归的 `f(k)=1+exp(-ik)` 使用共同实轨道规范；旧 odd-sin(k) toy 虽满足幺正 Swap，
+却不满足该 A0 谱约束，正好说明几何证书不能验证轨道 TR 假设。
+
 ## Rustb 消费边界
 
 cryspglib 只提供群与几何。Rustb 必须另外给出、认证完整的轨道 sewing action `P_g`，特别是：
@@ -160,7 +213,7 @@ cryspglib 只提供群与几何。Rustb 必须另外给出、认证完整的轨�
 - 跨通道 action 的复合（含 q 的 Bloch 相位），以及中心映射和实际轨道 action 的一致性；
 - 全实空间支撑上的 covariance、Hermiticity、投影幂等性。
 
-有了该轨道表示后，第一版**幺正**投影才是
+有了该轨道表示后，若仅使用 G，**幺正**平均是
 
 ```text
 H'_sigma = sum_g P_g[ H_{eta_g sigma} ] / |G|
@@ -169,8 +222,13 @@ H0' = sum_g P_g[H0]/|G|
 Hz' = sum_g eta_g P_g[Hz]/|G|
 ```
 
-`Swap` 只选另一通道，不添加复共轭。几何相容性不证明实际复杂 hopping 具备此对称性。
-谱关系是 `E_up(k)=E_down(W^{-T}k)`，不是一般 k 点的同点简并。
+纳入 A0 后则对 `g A0^kappa` 的完整半线性 action 平均，分母为 `2|G|`；
+`P_A0` 保持通道而共轭，`H0` 和 `Hz` 都受它约束，只有 `eta_g` 给 Hz 额外符号。
+只有在共同实轨道规范下，实空间 A0 平均才简化为每个 hopping 与其复共轭的平均，不能对 Bloch H(k) 直接取实部。
+
+`Swap` 本身只选另一通道，复共轭由独立 kind 决定。几何相容性不证明实际复杂 hopping 具备此对称性。
+幺正 Swap 的谱关系是 `E_up(k)=E_down(W^{-T}k)`；反幺正 Swap 伙伴则是
+`E_up(k)=E_down(-W^{-T}k)`，都不是一般 k 点的同点简并。
 本次没有修改 Rustb，也没有实现其局域规范、轨道表示或 Hamiltonian 联合投影。
 
 ## 可重复检查

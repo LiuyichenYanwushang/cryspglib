@@ -22,6 +22,39 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 共线 C2T 反幺正补全（2026-11-10；基线d5218ee）
+
+用户指出常规无SOC共线模型还具有 `A0=[C2_perp T||E]`。原入口仍是幺正**子群**，不是否认该对称；
+现由主agent亲自新增[显式扩展](<src/collinear_spin.rs#L210-L310>) `group.with_spin_only_time_reversal()`，返回只读
+CollinearSpinTimeReversalGroup。调用者承诺不存在轨道TR破缺，不能由原子/磁矩自动认证实际H或Wannier规范。
+A0保持up/dn但反幺正，k→−k，自旋1/2平方+I，不强迫Kramers或同k的up/dn简并；幺正Swap仍不共轭。
+
+只在当前有限商层构造 `G x {1,A0}`：前n原幺正顺序，后n为gA0；总channel仍eta_g，kind独立决定共轭及动量负号。
+拥有原证书、借用原映射，按基表及anti XOR算完整产品/逆元，不复制四倍表或重做八倍三元检查；所有非法索引先拒绝再取模。
+真实W/t/整数q/epsilon不因anti取负。A0索引是原单位**商类代表**，不暗中归零；E的t=2+1e−6测试保留anti平方q=2/epsilon≈1e−6。
+旧数值/搜索/验证核、MSG语义与irrep数据完全未改。
+
+[新契约](<docs/collinear-spin-group.md>)区分连续核与有限层：A0反转U_z角度，完整连续spin group不称直积；
+SU(2)中心和Bloch相位另证，anti Swap可平方−exp(−ik.q)，不由商类order2推出+I。
+任意轨道规范需Q0(k)，输入k约定下gA0的sewing为P_g(−k)Q0(k)；共同实轨道规范才有H_sigma(−k)=H_sigma(k)*，
+**不是**对Bloch H(k)直接取实部。H0/Hz都受A0约束，完整半线性平均分母2|G|；仍未实现Rustb轨道sewing或H投影。
+
+新增[3项公开回归](<tests/collinear_spin.rs#L261-L505>)，本文件26/0；旧模块2/0保持。覆盖96元非交换cubic扩展全部triples、
+四种kind×channel、原始代表/非零q/epsilon、边界索引、FM无Kramers及实hopping的复Bloch正控制；旧odd-sin toy保留为A0假设负控制。
+[最终独立增量复核](<target/collinear-c2t-review.md>)有界PASS，绑定0495de8e实现；其9,216对/884,736三元组、96个4×4半线性产品与36项复gauge检查
+是独立Python数学探针，reviewer未运行cargo，不冒称生产轨道表示或无限输入穷尽。旧数值复核报告原字节未覆盖。
+
+冻结258输入的[新核心电池](<target/r62-battery-collinear-c2t-core-v1-audit.txt.gz>)16腿/81壳/85池全0：
+1,093列出=**1,089通过/0失败+4历史忽略**，身份不变；实际日志另验32 doctest（含更新后的API示例），无忽略/过滤。
+严格debug/release all-target Clippy、包fmt和暂存/工作区diff检查通过；debug26+2另在DATA512执行。
+四组Python、oracle/方向串及[额外W行门禁](<target/collinear-c2t-pinned-other-wave-rows-final.txt.gz>)通过，仍73/1,006/5,756/0失败。
+三张普通完整TSV的4/8字节、原SHA及含表头42,074/80,294/11,010行保持。单CPU7、低优先级串行，编译4096/运行512MiB DATA是逐进程限制而非总RSS；
+不把调度差异当性能结论，不冒称旧P4磁Γ/物理源专项cohort重跑。P4计数及整体待办不变，项目整体仍未完成。
+
+日志/TSV即时校验压缩。[新93件归档](<target/collinear-c2t-binary-archive-receipt.json>)含5个同inode别名，
+1,848,534,272原始逻辑字节压为180,759,230字节；逐成员字节/SHA及gzip EOF/CRC核验后，
+[清理回执](<target/collinear-c2t-binary-cleanup-receipt.json>)只删93个逐项核对的精确生成路径。旧档案保留，未删其它项目、push或部署。
+
 ### 独立共线自旋群检测、验证与原子映射（2026-11-10；基线dcc31da）
 
 按用户本次新需求，由主agent亲自实现[独立模块](<src/collinear_spin.rs>)及根导出：

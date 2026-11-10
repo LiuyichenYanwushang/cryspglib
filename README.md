@@ -36,12 +36,13 @@ Starting from the C source, the AI-assisted porting effort delivered:
 ### No-SOC collinear spin symmetry
 
 - Independent unitary `Preserve` / `Swap` channel actions, **not** MSG time reversal
-- `detect_collinear_spin_group` and strict `validate_collinear_spin_group` for complete target sets
+- `detect_collinear_spin_group` and strict `validate_collinear_spin_group` for complete unitary target sets
+- `.with_spin_only_time_reversal()` includes channel-preserving antiunitary `[C2_perp T||E]`, independently of `Swap`
 - Original-frame atom permutations, integer cell shifts, actual residuals and group-product witnesses
 - Signed moments or checked collinear vectors with independent tolerances; no new dependencies
 
 See the [API and Rustb consumption contract](<docs/collinear-spin-group.md>).
-This is a finite unitary quotient, not a complete spin-space-group/SU(2) implementation or Hamiltonian projector.
+These are finite quotients with an explicit orbital-TR assumption for the antiunitary extension, not a complete spin-space-group/SU(2) implementation or Hamiltonian projector.
 
 ### Verified physical systems
 
